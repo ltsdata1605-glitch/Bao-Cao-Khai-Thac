@@ -1,0 +1,1 @@
+{"name":"Báo Cáo Khai Thác iOS","description":"Ứng dụng báo cáo khai thác doanh thu, sản phẩm, gia dụng phong cách iOS, lưu trữ SQLite/IndexedDB và đồng bộ trực tuyến lên Google Sheet.","requestFramePermissions":[],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}
