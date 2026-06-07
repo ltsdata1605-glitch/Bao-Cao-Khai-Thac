@@ -198,7 +198,8 @@ export default function App() {
   const handleResetForm = () => {
     setState(prev => ({
       ...initialState,
-      staffName: prev.staffName // Giữ nguyên tên nhân viên để tiện báo cáo đơn kế tiếp
+      staffName: prev.staffName,
+      leads: prev.leads
     }));
     setWarnings([]);
     toast.success('Đã làm sạch số lượng và doanh thu! Sẵn sàng nhập đơn sau.', {
@@ -557,18 +558,21 @@ export default function App() {
 
   const getVietTextReport = (data: typeof state) => {
     const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const dateStr = `${day}-${month}`;
     const timeStr = now.toTimeString().slice(0, 5);
     const cash = parseFloat(data.cash) || 0;
     const inst = parseFloat(data.installment) || 0;
     const total = cash + inst;
     const eff = total > 0 ? Math.round((inst / total) * 100) : 0;
 
-    let r = `📊 ${data.staffName || 'NV'} | ${todayStr} ${timeStr}\n`;
+    let r = `📊 User: ${data.staffName || 'NV'}\n`;
+    r += `Ngày: ${timeStr} ${dateStr}\n\n`;
 
     // Doanh thu 1 dòng + Mở Ví luôn hiển thị
     if (cash > 0 || inst > 0) {
-      r += `💰 TM: ${cash} | TC: ${inst} Tr (${eff}%) | Mở Ví: ${data.moVi ? '✓' : '✗'}\n`;
+      r += `💰 T.Mặt: ${cash}tr | T.Chậm: ${inst}Tr (${eff}%) | Mở Ví: ${data.moVi ? '✓' : '✗'}\n`;
     }
 
     // Sản phẩm - 1 dòng
@@ -582,7 +586,7 @@ export default function App() {
     if (data.products.otherName.trim() && data.products.otherCount > 0) {
       prods.push(`${data.products.otherName}: ${data.products.otherCount}`);
     }
-    if (prods.length > 0) r += `📦 SP: ${prods.join(' | ')}\n`;
+    if (prods.length > 0) r += `📦 S.Phẩm: ${prods.join(' | ')}\n`;
 
     // Dịch vụ bổ sung - 1 dòng
     const svcs: string[] = [];
@@ -593,7 +597,7 @@ export default function App() {
     if (data.services.dongHo > 0) svcs.push(`ĐH: ${data.services.dongHo}`);
     const insNum = parseFloat(data.services.insurance) || 0;
     if (insNum > 0) svcs.push(`BH: ${data.services.insurance}`);
-    if (svcs.length > 0) r += `🛠 DV: ${svcs.join(' | ')}\n`;
+    if (svcs.length > 0) r += `🛠 D.Vụ: ${svcs.join(' | ')}\n`;
 
     // Phụ kiện - 1 dòng
     const accs: string[] = [];
@@ -604,7 +608,7 @@ export default function App() {
     if (data.accessories.otherName?.trim() && data.accessories.otherCount > 0) {
       accs.push(`${data.accessories.otherName}: ${data.accessories.otherCount}`);
     }
-    if (accs.length > 0) r += `🎧 PK: ${accs.join(' | ')}\n`;
+    if (accs.length > 0) r += `🎧 P.Kiện: ${accs.join(' | ')}\n`;
 
     // Điện gia dụng - 1 dòng
     const houses: string[] = [];
@@ -617,7 +621,7 @@ export default function App() {
     if (data.household.otherName.trim() && data.household.otherCount > 0) {
       houses.push(`${data.household.otherName}: ${data.household.otherCount}`);
     }
-    if (houses.length > 0) r += `🏠 GD: ${houses.join(' | ')}\n`;
+    if (houses.length > 0) r += `🏠 G.Dụng: ${houses.join(' | ')}\n`;
 
     // Chiến giá - compact
     const ceTc = Number(data.priceWar.ce.tc) || 0;
@@ -635,7 +639,7 @@ export default function App() {
     const hasIct = (ictTc + ictSs + ictCh + ictBo + ictXtt) > 0;
 
     if (hasCe || hasIct) {
-      r += `⚔️ CG:`;
+      r += `⚔️ C.Giá:`;
       if (hasCe) {
         const ceParts: string[] = [];
         if (ceTc > 0) ceParts.push(`TC: ${ceTc}`);
@@ -657,22 +661,9 @@ export default function App() {
       r += `\n`;
     }
 
-    // Leads
-    if (data.leads.length > 0) {
-      r += `📋 KH: `;
-      r += data.leads.map((l) => {
-        let text = `${l.name}-${l.phone}`;
-        if (l.status && l.status !== 'Chưa liên hệ') {
-          text += ` [${l.status}${l.statusDetails ? `: ${l.statusDetails}` : ''}]`;
-        }
-        return text;
-      }).join(' | ');
-      r += `\n`;
-    }
-
-    // Ghi chú
+    // Ghi chú - double line break before notes
     if (data.notes?.trim()) {
-      r += `📝 ${data.notes.trim()}\n`;
+      r += `\n📝 ${data.notes.trim()}\n`;
     }
 
     return r.trim();
@@ -693,15 +684,66 @@ export default function App() {
       return;
     }
 
-    // 1. Copy formatted report to clipboard
-    const textReport = getVietTextReport(state);
-    copyToClipboard(textReport);
-
-    // 2. Save report to Local IndexedDB
+    // Capture current values to avoid referencing the reset state during asynchronous execution
     const todayStr = new Date().toISOString().slice(0, 10);
+    const capturedStaffName = state.staffName;
+    const currentCash = parseFloat(state.cash) || 0;
+    const currentInstallment = parseFloat(state.installment) || 0;
+    const currentInsurance = parseFloat(state.services.insurance) || 0;
+    const currentEfficiency = efficiency();
+
+    const rowData: ReportRowData = {
+      date: todayStr,
+      staffName: capturedStaffName,
+      cash: currentCash,
+      installment: currentInstallment,
+      moVi: state.moVi,
+      efficiency: currentEfficiency,
+      tivi: state.products.tivi,
+      tuLanh: state.products.tuLanh,
+      mayGiat: state.products.mayGiat,
+      mayLanh: state.products.mayLanh,
+      smpTab: state.products.smpTab,
+      laptop: state.products.laptop,
+      otherProduct: state.products.otherName.trim() ? `${state.products.otherName}: ${state.products.otherCount}` : '',
+      mln: state.household.mln,
+      qdh: state.household.qdh,
+      quat: state.household.quat,
+      noiCom: state.household.noiCom,
+      noiChien: state.household.noiChien,
+      locKk: state.household.locKk,
+      otherHousehold: state.household.otherName.trim() ? `${state.household.otherName}: ${state.household.otherCount}` : '',
+      vi: parseFloat(state.services.vi) || 0,
+      vieon: state.services.vieon,
+      sim: state.services.sim,
+      dongHo: state.services.dongHo,
+      insurance: currentInsurance,
+      camera: state.accessories.camera,
+      sdp: state.accessories.sdp,
+      den: state.accessories.den,
+      loa: state.accessories.loa,
+      otherAccessory: state.accessories.otherName?.trim() ? `${state.accessories.otherName}: ${state.accessories.otherCount}` : '',
+      ceTc: Number(state.priceWar.ce.tc) || 0,
+      ceSs: Number(state.priceWar.ce.ss) || 0,
+      ceCh: Number(state.priceWar.ce.ch) || 0,
+      ceBo: Number(state.priceWar.ce.bo) || 0,
+      ceXtt: Number(state.priceWar.ce.xtt) || 0,
+      ictTc: Number(state.priceWar.ict.tc) || 0,
+      ictSs: Number(state.priceWar.ict.ss) || 0,
+      ictCh: Number(state.priceWar.ict.ch) || 0,
+      ictBo: Number(state.priceWar.ict.bo) || 0,
+      ictXtt: Number(state.priceWar.ict.xtt) || 0,
+      leadsText: state.leads.map(lead => {
+        let itemText = `${lead.name} (${lead.phone}) - ${lead.product}`;
+        if (lead.notes) itemText += ` (Ghi chú: ${lead.notes})`;
+        itemText += ` [${lead.status || 'Chưa liên hệ'}${lead.statusDetails ? `: ${lead.statusDetails}` : ''}]`;
+        return itemText;
+      }).join('; ')
+    };
+
     const finalReport = {
       date: todayStr,
-      staffName: state.staffName,
+      staffName: capturedStaffName,
       cash: state.cash,
       installment: state.installment,
       products: { ...state.products },
@@ -714,6 +756,11 @@ export default function App() {
       syncedAt: new Date().toISOString()
     };
 
+    // 1. Copy formatted report to clipboard
+    const textReport = getVietTextReport(state);
+    copyToClipboard(textReport);
+
+    // 2. Save report to Local IndexedDB
     try {
       await DBService.saveReport(finalReport);
       const rawReports = await DBService.getAllReports();
@@ -721,6 +768,15 @@ export default function App() {
     } catch (err) {
       console.error('Error saving local report:', err);
     }
+
+    // Reset form draft locally immediately, preserving staffName and leads
+    handleStateChange(prev => ({
+      ...initialState,
+      staffName: prev.staffName,
+      leads: prev.leads
+    }));
+    setWarnings([]);
+    toast.success('Đã lưu nháp local & làm sạch biểu mẫu để nhập tiếp đơn tiếp theo!', { icon: '🔄' });
 
     // 3. Sync to Google Sheets
     let currentToken = accessToken;
@@ -750,58 +806,9 @@ export default function App() {
 
     try {
       const email = currentUser?.email || 'unknown';
-      const spreadsheetId = await getOrCreateSpreadsheet(currentToken, email, state.staffName);
+      const spreadsheetId = await getOrCreateSpreadsheet(currentToken, email, capturedStaffName);
       await ensureHeaders(spreadsheetId, currentToken);
       
-      const rowData: ReportRowData = {
-        date: todayStr,
-        staffName: state.staffName,
-        cash: totalCash,
-        installment: totalInstallment,
-        moVi: state.moVi,
-        efficiency: efficiency(),
-        tivi: state.products.tivi,
-        tuLanh: state.products.tuLanh,
-        mayGiat: state.products.mayGiat,
-        mayLanh: state.products.mayLanh,
-        smpTab: state.products.smpTab,
-        laptop: state.products.laptop,
-        otherProduct: state.products.otherName.trim() ? `${state.products.otherName}: ${state.products.otherCount}` : '',
-        mln: state.household.mln,
-        qdh: state.household.qdh,
-        quat: state.household.quat,
-        noiCom: state.household.noiCom,
-        noiChien: state.household.noiChien,
-        locKk: state.household.locKk,
-        otherHousehold: state.household.otherName.trim() ? `${state.household.otherName}: ${state.household.otherCount}` : '',
-        vi: parseFloat(state.services.vi) || 0,
-        vieon: state.services.vieon,
-        sim: state.services.sim,
-        dongHo: state.services.dongHo,
-        insurance: totalInsurance,
-        camera: state.accessories.camera,
-        sdp: state.accessories.sdp,
-        den: state.accessories.den,
-        loa: state.accessories.loa,
-        otherAccessory: state.accessories.otherName?.trim() ? `${state.accessories.otherName}: ${state.accessories.otherCount}` : '',
-        ceTc: Number(state.priceWar.ce.tc) || 0,
-        ceSs: Number(state.priceWar.ce.ss) || 0,
-        ceCh: Number(state.priceWar.ce.ch) || 0,
-        ceBo: Number(state.priceWar.ce.bo) || 0,
-        ceXtt: Number(state.priceWar.ce.xtt) || 0,
-        ictTc: Number(state.priceWar.ict.tc) || 0,
-        ictSs: Number(state.priceWar.ict.ss) || 0,
-        ictCh: Number(state.priceWar.ict.ch) || 0,
-        ictBo: Number(state.priceWar.ict.bo) || 0,
-        ictXtt: Number(state.priceWar.ict.xtt) || 0,
-        leadsText: state.leads.map(lead => {
-          let itemText = `${lead.name} (${lead.phone}) - ${lead.product}`;
-          if (lead.notes) itemText += ` (Ghi chú: ${lead.notes})`;
-          itemText += ` [${lead.status || 'Chưa liên hệ'}${lead.statusDetails ? `: ${lead.statusDetails}` : ''}]`;
-          return itemText;
-        }).join('; ')
-      };
-
       const res = await appendReportToSheet(spreadsheetId, currentToken, rowData);
 
       if (res.success) {
@@ -962,7 +969,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.15 }}
+              transition={{ duration: 0.08, ease: 'easeOut' }}
               className="space-y-2.5"
             >
               {/* Doanh thu Card */}
@@ -1257,6 +1264,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.08, ease: 'easeOut' }}
               className="space-y-4"
             >
               {/* Form to insert lead information */}
@@ -1294,6 +1302,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.08, ease: 'easeOut' }}
               className="space-y-4"
             >
               <div className="bg-white dark:bg-neutral-900 rounded-2xl p-4 shadow-sm border border-neutral-200/50 dark:border-neutral-800">
@@ -1453,6 +1462,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.08, ease: 'easeOut' }}
               className="space-y-4 animate-fade-in"
             >
               {/* iCloud Styled Badge inside settings */}
@@ -1603,6 +1613,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.08, ease: 'easeOut' }}
               className="space-y-4 animate-fade-in"
             >
               {/* Header card with Time range filter and refresh action */}
