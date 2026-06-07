@@ -32,10 +32,14 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
-/* Disable iOS auto-zoom on form inputs by forcing font-size to be at least 16px on mobile */
-@media (max-width: 768px) {
-  input, select, textarea {
-    font-size: 16px !important;
-  }
+/* Disable iOS auto-zoom on form inputs by forcing font-size to be at least 16px */
+input, select, textarea,
+input:focus, select:focus, textarea:focus {
+  font-size: 16px !important;
+}
+
+/* Prevent double-tap zoom and improve touch responsiveness on mobile */
+input, select, textarea, button, a {
+  touch-action: manipulation;
 }
 
