@@ -558,21 +558,18 @@ export default function App() {
 
   const getVietTextReport = (data: typeof state) => {
     const now = new Date();
-    const day = String(now.getDate()).padStart(2, '0');
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const dateStr = `${day}-${month}`;
-    const timeStr = now.toTimeString().slice(0, 5);
     const cash = parseFloat(data.cash) || 0;
     const inst = parseFloat(data.installment) || 0;
     const total = cash + inst;
     const eff = total > 0 ? Math.round((inst / total) * 100) : 0;
 
-    let r = `📊 User: ${data.staffName || 'NV'}\n`;
-    r += `Ngày: ${timeStr} ${dateStr}\n\n`;
+    let r = `📊 BÁO CÁO KHAI THÁC\n\n`;
 
-    // Doanh thu 1 dòng + Mở Ví luôn hiển thị
+    // Doanh thu multi-line list
     if (cash > 0 || inst > 0) {
-      r += `💰 T.Mặt: ${cash}tr | T.Chậm: ${inst}Tr (${eff}%) | Mở Ví: ${data.moVi ? '✓' : '✗'}\n`;
+      r += `💰 Doanh thu: ${total}tr\n`;
+      r += `   - T.Mặt: ${cash}tr\n`;
+      r += `   - T.Chậm: ${inst}Tr ~ ${eff}% | Mở Ví: ${data.moVi ? '✓' : '✗'}\n`;
     }
 
     // Sản phẩm - 1 dòng
@@ -615,50 +612,17 @@ export default function App() {
     if (data.household.mln > 0) houses.push(`MLN: ${data.household.mln}`);
     if (data.household.qdh > 0) houses.push(`QĐH: ${data.household.qdh}`);
     if (data.household.quat > 0) houses.push(`Quạt: ${data.household.quat}`);
-    if (data.household.noiCom > 0) houses.push(`NC: ${data.household.noiCom}`);
-    if (data.household.noiChien > 0) houses.push(`NCh: ${data.household.noiChien}`);
+    if (data.household.noiCom > 0) houses.push(`N.Cơm: ${data.household.noiCom}`);
+    if (data.household.noiChien > 0) houses.push(`N.Chiên: ${data.household.noiChien}`);
     if (data.household.locKk > 0) houses.push(`LKK: ${data.household.locKk}`);
     if (data.household.otherName.trim() && data.household.otherCount > 0) {
       houses.push(`${data.household.otherName}: ${data.household.otherCount}`);
     }
     if (houses.length > 0) r += `🏠 G.Dụng: ${houses.join(' | ')}\n`;
 
-    // Chiến giá - compact
-    const ceTc = Number(data.priceWar.ce.tc) || 0;
-    const ceSs = Number(data.priceWar.ce.ss) || 0;
-    const ceCh = Number(data.priceWar.ce.ch) || 0;
-    const ceBo = Number(data.priceWar.ce.bo) || 0;
-    const ceXtt = Number(data.priceWar.ce.xtt) || 0;
-    const hasCe = (ceTc + ceSs + ceCh + ceBo + ceXtt) > 0;
-
-    const ictTc = Number(data.priceWar.ict.tc) || 0;
-    const ictSs = Number(data.priceWar.ict.ss) || 0;
-    const ictCh = Number(data.priceWar.ict.ch) || 0;
-    const ictBo = Number(data.priceWar.ict.bo) || 0;
-    const ictXtt = Number(data.priceWar.ict.xtt) || 0;
-    const hasIct = (ictTc + ictSs + ictCh + ictBo + ictXtt) > 0;
-
-    if (hasCe || hasIct) {
-      r += `⚔️ C.Giá:`;
-      if (hasCe) {
-        const ceParts: string[] = [];
-        if (ceTc > 0) ceParts.push(`TC: ${ceTc}`);
-        if (ceSs > 0) ceParts.push(`SS: ${ceSs}`);
-        if (ceCh > 0) ceParts.push(`CH: ${ceCh}`);
-        if (ceBo > 0) ceParts.push(`BỎ: ${ceBo}`);
-        if (ceXtt > 0) ceParts.push(`XTT: ${ceXtt}`);
-        r += ` CE(${ceParts.join(', ')})`;
-      }
-      if (hasIct) {
-        const ictParts: string[] = [];
-        if (ictTc > 0) ictParts.push(`TC: ${ictTc}`);
-        if (ictSs > 0) ictParts.push(`SS: ${ictSs}`);
-        if (ictCh > 0) ictParts.push(`CH: ${ictCh}`);
-        if (ictBo > 0) ictParts.push(`BỎ: ${ictBo}`);
-        if (ictXtt > 0) ictParts.push(`XTT: ${ictXtt}`);
-        r += ` ICT(${ictParts.join(', ')})`;
-      }
-      r += `\n`;
+    // Chiến giá
+    if (data.showPriceWar) {
+      r += `⚔️ Chiến giá: ✓\n`;
     }
 
     // Ghi chú - double line break before notes
