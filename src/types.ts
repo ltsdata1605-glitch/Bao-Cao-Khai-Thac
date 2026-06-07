@@ -11,7 +11,7 @@ export interface LeadInfo {
   name: string;
   phone: string;
   product: string;
-  status: 'Chưa liên hệ' | 'Đã liên hệ' | 'Đã chốt' | 'Khách tham khảo' | 'Khách đã mua';
+  status: 'Chưa liên hệ' | 'Đã liên hệ' | 'Đã chốt' | 'Khách tham khảo' | 'Khách đã mua' | 'Tham khảo' | 'Từ chối';
   statusDetails?: string;
   notes?: string;
   createdAt: number;

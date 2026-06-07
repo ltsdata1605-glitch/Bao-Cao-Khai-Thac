@@ -153,6 +153,13 @@ const blockNonNumericKeys = (e: React.KeyboardEvent<HTMLInputElement>) => {
   if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault();
 };
 
+const displayStatus = (status: string | undefined): string => {
+  if (!status || status === 'Chưa liên hệ') return 'Chưa liên hệ';
+  if (status === 'Khách tham khảo') return 'Tham khảo';
+  if (status === 'Khách đã mua') return 'Từ chối';
+  return status;
+};
+
 export default function App() {
   const [state, setState] = useState<ReportState>(initialState);
 
@@ -648,6 +655,28 @@ export default function App() {
       return;
     }
 
+    let currentToken = accessToken;
+    let currentUser = user;
+    if (!currentToken) {
+      toast('Bạn chưa đăng nhập Google. Đang chuyển tới đăng nhập để đồng bộ báo cáo...', { icon: '🔑' });
+      try {
+        const result = await googleSignIn();
+        if (result) {
+          setUser(result.user);
+          setAccessToken(result.accessToken);
+          setNeedsAuth(false);
+          currentToken = result.accessToken;
+          currentUser = result.user;
+        } else {
+          toast.error('Vui lòng đăng nhập Google để thực hiện báo cáo.');
+          return;
+        }
+      } catch (err: any) {
+        toast.error(`Lỗi đăng nhập Google: ${err.message}`);
+        return;
+      }
+    }
+
     // Capture current values to avoid referencing the reset state during asynchronous execution
     const todayStr = new Date().toISOString().slice(0, 10);
     const capturedStaffName = state.staffName;
@@ -700,7 +729,7 @@ export default function App() {
       leadsText: state.leads.map(lead => {
         let itemText = `${lead.name} (${lead.phone}) - ${lead.product}`;
         if (lead.notes) itemText += ` (Ghi chú: ${lead.notes})`;
-        itemText += ` [${lead.status || 'Chưa liên hệ'}${lead.statusDetails ? `: ${lead.statusDetails}` : ''}]`;
+        itemText += ` [${displayStatus(lead.status)}${lead.statusDetails ? `: ${lead.statusDetails}` : ''}]`;
         return itemText;
       }).join('; ')
     };
@@ -743,28 +772,6 @@ export default function App() {
     toast.success('Đã lưu nháp local & làm sạch biểu mẫu để nhập tiếp đơn tiếp theo!', { icon: '🔄' });
 
     // 3. Sync to Google Sheets
-    let currentToken = accessToken;
-    let currentUser = user;
-    if (!currentToken) {
-      toast('Đã copy báo cáo & lưu Máy! Để tự động gửi lên Google Sheet, ứng dụng sẽ chuyển tới đăng nhập Google...', { icon: '🔄' });
-      try {
-        const result = await googleSignIn();
-        if (result) {
-          setUser(result.user);
-          setAccessToken(result.accessToken);
-          setNeedsAuth(false);
-          currentToken = result.accessToken;
-          currentUser = result.user;
-        } else {
-          toast.error('Gửi Google Sheet thất bại do chưa chọn tài khoản Google.');
-          return;
-        }
-      } catch (err: any) {
-        toast.error(`Lỗi đăng nhập Google: ${err.message}`);
-        return;
-      }
-    }
-
     setIsSyncing(true);
     const toastId = toast.loading('Đang ghi dữ liệu báo cáo vào Google Sheet...');
 
@@ -2231,13 +2238,13 @@ function LeadsManager({
           <div className="space-y-1">
             <label className="text-[9.5px] font-bold text-neutral-400">SỐ ĐIỆN THOẠI</label>
             <input 
-              type="number"
-              inputMode="decimal"
-              onKeyDown={blockNonNumericKeys}
+              type="tel"
+              inputMode="numeric"
+              pattern="[0-9]*"
               placeholder="09xx..." 
               className="w-full text-xs font-semibold bg-white dark:bg-neutral-800 border-none rounded-xl p-2.5 focus:outline-none"
               value={phone}
-              onChange={e => setPhone(e.target.value)}
+              onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
             />
           </div>
         </div>
@@ -2357,14 +2364,15 @@ function LeadsManager({
         ) : (
           <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
             {filtered.map((l, index) => {
-              const isOverdue = (l.status || 'Chưa liên hệ') === 'Chưa liên hệ' && (Date.now() - (l.createdAt || Date.now())) > 2 * 60 * 60 * 1000;
+              const currentStatus = displayStatus(l.status);
+              const isOverdue = currentStatus === 'Chưa liên hệ' && (Date.now() - (l.createdAt || Date.now())) > 2 * 60 * 60 * 1000;
               const isExpanded = !!expandedStatusLeads[l.id];
 
               let badgeBg = 'bg-[#FF3B30]/10 text-[#FF3B30] border border-[#FF3B30]/25';
-              if (l.status === 'Đã liên hệ') badgeBg = 'bg-[#007AFF]/10 text-[#007AFF]';
-              else if (l.status === 'Đã chốt') badgeBg = 'bg-[#34C759]/10 text-[#34C759]';
-              else if (l.status === 'Khách tham khảo') badgeBg = 'bg-[#FF9500]/10 text-[#FF9500]';
-              else if (l.status === 'Khách đã mua') badgeBg = 'bg-[#30B0C7]/10 text-[#30B0C7]';
+              if (currentStatus === 'Đã liên hệ') badgeBg = 'bg-[#007AFF]/10 text-[#007AFF]';
+              else if (currentStatus === 'Đã chốt') badgeBg = 'bg-[#34C759]/10 text-[#34C759]';
+              else if (currentStatus === 'Tham khảo') badgeBg = 'bg-[#FF9500]/10 text-[#FF9500]';
+              else if (currentStatus === 'Từ chối') badgeBg = 'bg-[#A2A2A7]/10 text-[#A2A2A7]';
 
               return (
                 <div 
@@ -2378,7 +2386,7 @@ function LeadsManager({
                         <span className="text-xs font-bold text-[#1C1C1E] dark:text-neutral-100 truncate">{l.name}</span>
                         
                         <span className={`text-[8.5px] font-bold px-1.5 py-0.5 rounded-full select-none ${badgeBg}`}>
-                          {l.status || 'Chưa liên hệ'}
+                          {currentStatus}
                         </span>
                         
                         {isOverdue && (
@@ -2403,9 +2411,11 @@ function LeadsManager({
                         </p>
                       )}
 
-                      {l.statusDetails && (l.status === 'Đã liên hệ' || l.status === 'Khách đã mua') && (
+                      {l.statusDetails && (currentStatus === 'Đã liên hệ' || currentStatus === 'Từ chối' || currentStatus === 'Đã chốt') && (
                         <p className="text-[9.5px] text-[#007AFF] bg-[#007AFF]/5 dark:bg-[#007AFF]/10 p-1 rounded-lg mt-0.5">
-                          <span className="font-semibold">Chi tiết:</span> {l.statusDetails}
+                          <span className="font-semibold">
+                            {currentStatus === 'Đã liên hệ' ? 'Trao đổi:' : currentStatus === 'Đã chốt' ? 'Chốt:' : 'Lý do:'}
+                          </span> {l.statusDetails}
                         </p>
                       )}
                     </div>
@@ -2456,7 +2466,7 @@ function LeadsManager({
                       <div className="bg-white dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 p-2 rounded-xl space-y-2">
                         <span className="block text-[8.5px] font-bold text-neutral-400 uppercase tracking-wide">Chọn trạng thái chăm sóc:</span>
                         <div className="grid grid-cols-2 gap-1.5">
-                          {(['Chưa liên hệ', 'Đã liên hệ', 'Đã chốt', 'Khách tham khảo', 'Khách đã mua'] as const).map((st) => (
+                          {(['Chưa liên hệ', 'Đã liên hệ', 'Đã chốt', 'Tham khảo', 'Từ chối'] as const).map((st) => (
                             <label 
                               key={st} 
                               className="flex items-center gap-1.5 text-[9.5px] font-semibold text-neutral-700 dark:text-neutral-300 cursor-pointer select-none"
@@ -2465,12 +2475,12 @@ function LeadsManager({
                                 type="radio"
                                 name={`status-${l.id}`}
                                 className="text-[#007AFF] focus:ring-[#007AFF] w-3 h-3"
-                                checked={(l.status || 'Chưa liên hệ') === st}
+                                checked={currentStatus === st}
                                 onChange={() => {
                                   onUpdateLead({
                                     ...l,
                                     status: st,
-                                    statusDetails: (st === 'Đã liên hệ' || st === 'Khách đã mua') ? (l.statusDetails || '') : '',
+                                    statusDetails: (st === 'Đã liên hệ' || st === 'Từ chối' || st === 'Đã chốt') ? (l.statusDetails || '') : '',
                                     updatedAt: Date.now()
                                   });
                                 }}
@@ -2480,14 +2490,14 @@ function LeadsManager({
                           ))}
                         </div>
 
-                        {((l.status || 'Chưa liên hệ') === 'Đã liên hệ' || (l.status || 'Chưa liên hệ') === 'Khách đã mua') && (
+                        {(currentStatus === 'Đã liên hệ' || currentStatus === 'Từ chối' || currentStatus === 'Đã chốt') && (
                           <div className="space-y-1 pt-1.5 border-t border-neutral-100 dark:border-neutral-800">
                             <label className="block text-[8.5px] font-bold text-[#007AFF] uppercase tracking-wide">
-                              {l.status === 'Đã liên hệ' ? 'Nội dung trao đổi:' : 'Nội dung:'}
+                              {currentStatus === 'Đã liên hệ' ? 'Nội dung trao đổi:' : currentStatus === 'Đã chốt' ? 'Thông tin chốt (ví dụ: giao chiều, cọc 500k...):' : 'Lý do từ chối:'}
                             </label>
                             <input 
                               type="text"
-                              placeholder={l.status === 'Đã liên hệ' ? 'Nhập nội dung trao đổi...' : 'Nhập nội dung...'}
+                              placeholder={currentStatus === 'Đã liên hệ' ? 'Nhập nội dung trao đổi...' : currentStatus === 'Đã chốt' ? 'Nhập thông tin chốt...' : 'Nhập lý do từ chối...'}
                               className="w-full text-xs font-semibold bg-neutral-50 dark:bg-neutral-800 border-none rounded-xl p-2 focus:outline-none"
                               value={l.statusDetails || ''}
                               onChange={(e) => {
