@@ -175,7 +175,8 @@ export default function App() {
   const [isEditingName, setIsEditingName] = useState(true);
   const [selectedDateFilter, setSelectedDateFilter] = useState('');
   const [leadSearchQuery, setLeadSearchQuery] = useState('');
-  const [expandedHistoryDate, setExpandedHistoryDate] = useState<string | null>(null);
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
+  const [historySearchQuery, setHistorySearchQuery] = useState('');
 
   // Dashboard / Team charts states
   const [sheetRows, setSheetRows] = useState<any[]>([]);
@@ -996,21 +997,36 @@ export default function App() {
                 </div>
 
                 {/* Filter and Clear option */}
-                <div className="flex gap-2 mb-3">
-                  <input 
-                    type="date" 
-                    className="flex-1 bg-neutral-50 dark:bg-neutral-800 text-xs border border-neutral-200 dark:border-neutral-700 rounded-xl px-3 py-2 outline-none focus:border-[#007AFF]"
-                    value={selectedDateFilter}
-                    onChange={e => setSelectedDateFilter(e.target.value)}
-                  />
-                  {selectedDateFilter && (
-                    <button 
-                      onClick={() => setSelectedDateFilter('')}
-                      className="px-2.5 py-1.5 bg-neutral-100 dark:bg-neutral-800 text-xs rounded-xl font-semibold hover:text-red-500"
-                    >
-                      Xóa Lọc
-                    </button>
-                  )}
+                <div className="flex flex-col gap-2 mb-3">
+                  <div className="flex gap-2">
+                    <input 
+                      type="date" 
+                      className="flex-1 bg-neutral-50 dark:bg-neutral-800 text-xs border border-neutral-200 dark:border-neutral-700 rounded-xl px-3 py-2 outline-none focus:border-[#007AFF]"
+                      value={selectedDateFilter}
+                      onChange={e => setSelectedDateFilter(e.target.value)}
+                    />
+                    {(selectedDateFilter || historySearchQuery) && (
+                      <button 
+                        onClick={() => {
+                          setSelectedDateFilter('');
+                          setHistorySearchQuery('');
+                        }}
+                        className="px-3 py-2 bg-neutral-100 dark:bg-neutral-800 text-xs rounded-xl font-semibold hover:text-red-500 transition-colors"
+                      >
+                        Xóa Lọc
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      placeholder="Tìm theo tên NV, doanh thu..."
+                      className="w-full bg-neutral-50 dark:bg-neutral-800 text-xs border border-neutral-200 dark:border-neutral-700 rounded-xl pl-9 pr-3 py-2 outline-none focus:border-[#007AFF]"
+                      value={historySearchQuery}
+                      onChange={e => setHistorySearchQuery(e.target.value)}
+                    />
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+                  </div>
                 </div>
 
                 {history.length === 0 ? (
@@ -1311,8 +1327,8 @@ export default function App() {
                       <BarChart3 size={18} />
                     </div>
                     <div>
-                      <h3 className="font-extrabold text-[13.5px] text-neutral-800 dark:text-neutral-100 uppercase tracking-wide">Biểu đồ Nhóm</h3>
-                      <p className="text-[9.5px] text-neutral-400">Doanh số tích lũy & hiệu suất cửa hàng</p>
+                      <h3 className="font-extrabold text-[13.5px] text-neutral-800 dark:text-neutral-100 uppercase tracking-wide">Biểu đồ Cá nhân</h3>
+                      <p className="text-[9.5px] text-neutral-400">Doanh số tích lũy & hiệu suất của bạn</p>
                     </div>
                   </div>
                   
@@ -1358,10 +1374,10 @@ export default function App() {
                 </div>
 
                 {/* Connection status badge */}
-                <div className="flex items-center gap-1.5 p-2 bg-[#34C759]/10 text-[#34C759] border border-[#34C759]/20 rounded-xl">
-                  <span className="w-1.5 h-1.5 bg-[#34C759] rounded-full animate-pulse" />
-                  <span className="text-[9.5px] font-extrabold uppercase">Dữ liệu từ Cloud Firestore</span>
-                  <span className="text-[9.5px] text-[#34C759]/80 ml-auto">(Đồng bộ cả nhóm)</span>
+                <div className="flex items-center gap-1.5 p-2 bg-[#007AFF]/10 text-[#007AFF] border border-[#007AFF]/20 rounded-xl">
+                  <span className="w-1.5 h-1.5 bg-[#007AFF] rounded-full animate-pulse" />
+                  <span className="text-[9.5px] font-extrabold uppercase">Báo cáo cá nhân (IndexedDB)</span>
+                  <span className="text-[9.5px] text-[#007AFF]/80 ml-auto">(Lưu trữ cục bộ)</span>
                 </div>
               </div>
 
@@ -1369,7 +1385,7 @@ export default function App() {
               {isLoadingDashboard ? (
                 <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-10 shadow-xs flex flex-col items-center justify-center gap-2">
                   <RefreshCw size={24} className="animate-spin text-[#007AFF]" />
-                  <p className="text-xs text-neutral-400 italic">Đang đồng bộ dữ liệu cửa hàng...</p>
+                  <p className="text-xs text-neutral-400 italic">Đang tải dữ liệu báo cáo...</p>
                 </div>
               ) : (() => {
                 // Parse and aggregate report list
@@ -1480,7 +1496,7 @@ export default function App() {
                 return (
                   <div id="dashboard-capture-area" className="space-y-4 p-3 bg-[#F2F2F7] dark:bg-neutral-950 rounded-2xl">
                     <div className="flex items-center justify-between pb-1.5 border-b border-neutral-200 dark:border-neutral-800 select-none">
-                      <span className="text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Báo cáo doanh số nhóm ({dashboardTimeRange === 'today' ? 'Hôm nay' : 'Tuần này'})</span>
+                      <span className="text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Báo cáo doanh số cá nhân ({dashboardTimeRange === 'today' ? 'Hôm nay' : 'Tuần này'})</span>
                       <span className="text-[9px] font-bold text-neutral-400 dark:text-neutral-500">{new Date().toLocaleDateString('vi-VN')}</span>
                     </div>
                     
@@ -1515,52 +1531,6 @@ export default function App() {
 
                     </div>
 
-                    {/* Leaderboard Staff contribution widget */}
-                    <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-4 shadow-xs space-y-3">
-                      <div className="flex items-center gap-1.5 pb-1 border-b border-neutral-100 dark:border-neutral-850">
-                        <Award size={15} className="text-[#FF9500]" />
-                        <span className="text-xs font-extrabold uppercase text-neutral-500 tracking-wide">Bảng Vinh Danh Doanh Số</span>
-                      </div>
-
-                      <div className="space-y-3">
-                        {leaderList.map((leader, idx) => {
-                          const isFirst = idx === 0;
-                          const isSecond = idx === 1;
-                          const isThird = idx === 2;
-                          const maxLeaderContribution = Math.max(...leaderList.map(l => l.totalSales), 1);
-                          const leaderWidth = (leader.totalSales / maxLeaderContribution) * 100;
-
-                          return (
-                            <div key={idx} className="space-y-1">
-                              <div className="flex items-center justify-between text-xs">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <span className="w-4 text-[11px] font-black text-neutral-400 text-center shrink-0">
-                                    {isFirst ? '🥇' : isSecond ? '🥈' : isThird ? '🥉' : `#${idx + 1}`}
-                                  </span>
-                                  <span className="font-extrabold text-neutral-850 dark:text-neutral-200 truncate">{leader.name}</span>
-                                  <span className="text-[9px] bg-neutral-100 dark:bg-neutral-800 p-0.5 px-1.5 rounded-md text-neutral-400 shrink-0 font-medium">
-                                    {leader.orders} đơn
-                                  </span>
-                                </div>
-                                <span className="font-black text-neutral-900 dark:text-neutral-100 shrink-0">
-                                  {leader.totalSales.toFixed(1)} Tr
-                                </span>
-                              </div>
-                              <div className="w-full h-2 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
-                                <div 
-                                  className={`h-full rounded-full transition-all duration-500 ${isFirst ? 'bg-gradient-to-r from-[#FF9500] to-[#FFCC00]' : 'bg-[#007AFF]'}`}
-                                  style={{ width: `${leaderWidth}%` }}
-                                />
-                              </div>
-                              <div className="flex justify-between items-center text-[8.5px] text-neutral-400/80 px-1">
-                                <span>Tiền mặt: <b>{leader.cash.toFixed(1)} Tr</b></span>
-                                <span>Trả chậm: <b>{leader.installment.toFixed(1)} Tr</b></span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
 
                     {/* Highly performed main electronic products */}
                     <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-4 shadow-xs space-y-3">

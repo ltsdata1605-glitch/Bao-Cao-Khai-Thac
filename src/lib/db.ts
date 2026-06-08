@@ -3,7 +3,7 @@
  */
 
 const DB_NAME = 'BaoCaoKhaiThacDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export interface SyncLog {
   id: string;
@@ -23,9 +23,13 @@ export function initDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('drafts')) {
         db.createObjectStore('drafts');
       }
-      if (!db.objectStoreNames.contains('reports')) {
-        db.createObjectStore('reports', { keyPath: 'date' });
+      
+      // Recreate reports store to use 'id' keyPath instead of 'date' to allow multiple orders per day
+      if (db.objectStoreNames.contains('reports')) {
+        db.deleteObjectStore('reports');
       }
+      db.createObjectStore('reports', { keyPath: 'id' });
+
       if (!db.objectStoreNames.contains('saved_totals')) {
         db.createObjectStore('saved_totals');
       }
@@ -75,6 +79,10 @@ export const DBService = {
   // --- Daily Reports Management ---
   async saveReport(report: any): Promise<void> {
     const { store } = await getStore('reports', 'readwrite');
+    // Ensure report has a unique 'id' if not present
+    if (!report.id) {
+      report.id = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 5);
+    }
     return new Promise((resolve, reject) => {
       const request = store.put(report);
       request.onsuccess = () => resolve();
@@ -82,10 +90,10 @@ export const DBService = {
     });
   },
 
-  async getReport(date: string): Promise<any | null> {
+  async getReport(id: string): Promise<any | null> {
     const { store } = await getStore('reports');
     return new Promise((resolve) => {
-      const request = store.get(date);
+      const request = store.get(id);
       request.onsuccess = () => resolve(request.result || null);
       request.onerror = () => resolve(null);
     });
@@ -100,10 +108,10 @@ export const DBService = {
     });
   },
 
-  async deleteReport(date: string): Promise<void> {
+  async deleteReport(id: string): Promise<void> {
     const { store } = await getStore('reports', 'readwrite');
     return new Promise((resolve, reject) => {
-      const request = store.delete(date);
+      const request = store.delete(id);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
