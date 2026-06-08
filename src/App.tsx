@@ -853,7 +853,7 @@ export default function App() {
                       type="number" 
                       inputMode="decimal"
                       min="0"
-                      placeholder="Nhập số..." 
+                      placeholder="VD: 300k (0.3)..." 
                       className="w-full text-xs bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl px-3 py-2 focus:outline-none focus:border-[#34C759]"
                       value={state.services.vi}
                       onChange={e => handleStateChange(prev => ({ ...prev, services: { ...prev.services, vi: e.target.value } }))}
