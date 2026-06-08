@@ -553,6 +553,11 @@ export default function App() {
     } catch (err: any) {
       toast.error(`Đồng bộ thất bại: ${err.message}`, { id: toastId });
       await DBService.addSyncLog('error', `Lỗi kết nối Google Sheets: ${err.message}`);
+      if (err.message?.toLowerCase().includes('insufficient') || err.message?.toLowerCase().includes('scope')) {
+        setAccessToken(null);
+        setUser(null);
+        setNeedsAuth(true);
+      }
     } finally {
       setIsSyncing(false);
       const rawLogs = await DBService.getSyncLogs();
@@ -793,6 +798,11 @@ export default function App() {
     } catch (err: any) {
       toast.error(`Đồng bộ Google Sheet thất bại: ${err.message}`, { id: toastId });
       await DBService.addSyncLog('error', `Lỗi đồng bộ tự động: ${err.message}`);
+      if (err.message?.toLowerCase().includes('insufficient') || err.message?.toLowerCase().includes('scope')) {
+        setAccessToken(null);
+        setUser(null);
+        setNeedsAuth(true);
+      }
     } finally {
       setIsSyncing(false);
       const rawLogs = await DBService.getSyncLogs();

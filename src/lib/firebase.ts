@@ -21,7 +21,7 @@ provider.addScope('https://www.googleapis.com/auth/spreadsheets');
 
 // Set custom parameters to force consent screen and account selection if necessary
 provider.setCustomParameters({
-  prompt: 'select_account'
+  prompt: 'select_account consent'
 });
 
 let isSigningIn = false;
