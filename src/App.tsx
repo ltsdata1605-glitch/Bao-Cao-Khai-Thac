@@ -651,8 +651,8 @@ export default function App() {
             <input 
               type="text" 
               autoFocus
-              placeholder="21707 - Sơn" 
-              className="bg-transparent text-xs font-semibold text-[#1C1C1E] dark:text-neutral-100 border-none outline-none focus:ring-0 w-20 py-0"
+              placeholder="Nhập User - Tên" 
+              className="bg-transparent text-xs font-semibold text-[#1C1C1E] dark:text-neutral-100 border-none outline-none focus:ring-0 w-28 py-0"
               value={state.staffName}
               onChange={e => handleStateChange(p => ({ ...p, staffName: e.target.value }))}
               onBlur={() => { 
