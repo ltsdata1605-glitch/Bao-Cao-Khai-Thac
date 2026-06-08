@@ -631,7 +631,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F2F2F7] dark:bg-neutral-950 font-sans text-[#1C1C1E] dark:text-neutral-100 transition-colors duration-300 pb-20">
-      <Toaster position="bottom-center" toastOptions={{ className: 'dark:bg-neutral-800 dark:text-white rounded-xl' }} />
+      <Toaster 
+        position="top-center" 
+        toastOptions={{ 
+          className: 'dark:bg-neutral-850 dark:text-white text-xs font-semibold rounded-2xl shadow-lg border border-neutral-200/30 dark:border-neutral-800',
+          style: {
+            fontSize: '12px',
+          }
+        }} 
+      />
 
       {/* Header Bar */}
       <nav className="sticky top-0 z-40 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl border-b border-[#C6C6C8]/40 dark:border-neutral-800/60 px-4 py-3 flex items-center justify-between">
