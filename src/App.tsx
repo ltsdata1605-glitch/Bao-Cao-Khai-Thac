@@ -1017,7 +1017,7 @@ export default function App() {
                   <div className="py-12 text-center text-xs text-neutral-400 space-y-2">
                     <History size={36} className="mx-auto text-neutral-300 stroke-[1.5px]" />
                     <p>Chưa có ngày báo cáo nào hoàn chỉnh được lưu trữ.</p>
-                    <p className="text-[10px] text-neutral-400/80">Lưu dữ liệu trên Cloud Firestore sẽ tự động tạo log ngày hoàn chỉnh lưu tại đây.</p>
+                    <p className="text-[10px] text-neutral-400/80">Bấm Sao chép & Lưu báo cáo ở tab Báo Cáo để ghi nhận lịch sử ngày tại đây.</p>
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -1026,25 +1026,86 @@ export default function App() {
                       .sort((a, b) => b.date.localeCompare(a.date))
                       .map((item, idx) => {
                         const isExpanded = expandedHistoryDate === item.date;
+                        
+                        const totalProductsCount = 
+                          (item.products?.tivi || 0) +
+                          (item.products?.tuLanh || 0) +
+                          (item.products?.mayGiat || 0) +
+                          (item.products?.mayLanh || 0) +
+                          (item.products?.smpTab || 0) +
+                          (item.products?.laptop || 0) +
+                          (item.household?.mln || 0) +
+                          (item.household?.qdh || 0) +
+                          (item.household?.quat || 0) +
+                          (item.household?.noiCom || 0) +
+                          (item.household?.locKk || 0);
+
+                        const totalAccessoriesCount = 
+                          (item.accessories?.camera || 0) +
+                          (item.accessories?.sdp || 0) +
+                          (item.accessories?.taiNghe || 0) +
+                          (item.accessories?.den || 0) +
+                          (item.accessories?.dongHo || 0);
+
+                        const totalLeadsCount = item.leads?.length || 0;
+
                         return (
                           <div 
                             key={idx} 
                             className="border border-neutral-100 dark:border-neutral-800/80 rounded-xl overflow-hidden shadow-xs bg-neutral-50/50 dark:bg-neutral-850"
                           >
                             <div 
-                              className="px-3.5 py-3 flex items-center justify-between cursor-pointer hover:bg-neutral-100/50 dark:hover:bg-neutral-800 transition-all select-none"
+                              className="px-3.5 py-3.5 flex flex-col gap-2 cursor-pointer hover:bg-neutral-100/50 dark:hover:bg-neutral-800 transition-all select-none"
                               onClick={() => setExpandedHistoryDate(isExpanded ? null : item.date)}
                             >
-                              <div className="flex items-center gap-2">
-                                <span className={`w-2 h-2 rounded-full ${item.synced ? 'bg-[#34C759]' : 'bg-neutral-300'}`} />
-                                <span className="text-xs font-bold text-[#1C1C1E] dark:text-neutral-100">{item.date}</span>
-                                <span className="text-[10px] text-neutral-400 max-w-[100px] truncate">({item.staffName || 'Nhân viên'})</span>
+                              {/* First row: Date, Staff, Status badge */}
+                              <div className="flex items-center justify-between w-full">
+                                <div className="flex items-center gap-1.5">
+                                  <Calendar size={13} className="text-[#007AFF]" />
+                                  <span className="text-xs font-bold text-[#1C1C1E] dark:text-neutral-100">{item.date}</span>
+                                  <span className="text-[10px] text-neutral-400 font-bold">({item.staffName || 'Bạn'})</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-[#34C759]/10 text-[#34C759] flex items-center gap-0.5">
+                                    Local 💾
+                                  </span>
+                                  <ChevronRight size={14} className={`text-neutral-400 transform transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                                </div>
                               </div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[9.5px] font-bold text-neutral-400 capitalize">
-                                  {item.synced ? 'Đã Đồng Bộ ✅' : 'Chỉ lưu local 💾'}
-                                </span>
-                                <ChevronRight size={14} className={`text-neutral-400 transform transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+
+                              {/* Second row: Key metric summaries */}
+                              <div className="flex flex-wrap gap-1.5 items-center text-[10px]">
+                                {/* Cash */}
+                                <div className="bg-[#007AFF]/5 text-[#007AFF] px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                                  <span>💵</span>
+                                  <span>{(Number(item.cash) || 0)} Tr</span>
+                                </div>
+                                {/* Installment */}
+                                <div className="bg-[#34C759]/5 text-[#34C759] px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                                  <span>💳</span>
+                                  <span>{(Number(item.installment) || 0)} Tr</span>
+                                </div>
+                                {/* Products sold */}
+                                {totalProductsCount > 0 && (
+                                  <div className="bg-orange-500/5 text-orange-600 dark:text-orange-400 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                                    <span>📦</span>
+                                    <span>{totalProductsCount} máy</span>
+                                  </div>
+                                )}
+                                {/* Accessories */}
+                                {totalAccessoriesCount > 0 && (
+                                  <div className="bg-purple-500/5 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                                    <span>🔌</span>
+                                    <span>{totalAccessoriesCount} phụ kiện</span>
+                                  </div>
+                                )}
+                                {/* Leads count */}
+                                {totalLeadsCount > 0 && (
+                                  <div className="bg-blue-500/5 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                                    <span>👥</span>
+                                    <span>{totalLeadsCount} khách</span>
+                                  </div>
+                                )}
                               </div>
                             </div>
 
