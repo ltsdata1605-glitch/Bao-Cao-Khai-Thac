@@ -1111,13 +1111,6 @@ export default function App() {
                                      <span>{totalAccessoriesCount} phụ kiện</span>
                                    </div>
                                  )}
-                                 {/* Leads count */}
-                                 {totalLeadsCount > 0 && (
-                                   <div className="bg-blue-500/5 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
-                                     <span>👥</span>
-                                     <span>{totalLeadsCount} khách</span>
-                                   </div>
-                                 )}
                                </div>
                              </div>
 
