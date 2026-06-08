@@ -741,7 +741,7 @@ export default function App() {
                       type="number" 
                       inputMode="decimal"
                       min="0"
-                      placeholder="Nhập số Tr..." 
+                      placeholder="VD: 8.5 (8.5Tr)..." 
                       className="w-full text-xs font-semibold bg-transparent border-0 border-b border-neutral-200 dark:border-neutral-700 py-1 focus:ring-0 focus:border-[#007AFF] focus:outline-none"
                       value={state.cash}
                       onChange={e => handleStateChange(prev => ({ ...prev, cash: e.target.value }))}
@@ -754,7 +754,7 @@ export default function App() {
                       type="number" 
                       inputMode="decimal"
                       min="0"
-                      placeholder="Nhập số Tr..." 
+                      placeholder="VD: 300k (0.3)..." 
                       className="w-full text-xs font-semibold text-[#007AFF] bg-transparent border-0 border-b border-neutral-200 dark:border-neutral-700 py-1 focus:ring-0 focus:border-[#007AFF] focus:outline-none"
                       value={state.installment}
                       onChange={e => handleStateChange(prev => ({ ...prev, installment: e.target.value }))}
