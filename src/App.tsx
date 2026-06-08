@@ -13,7 +13,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import { PriceWarStats, LeadInfo, ReportState, SyncLog } from './types';
 import { DBService } from './lib/db';
 import { initAuth, googleSignIn, logout , auth } from './lib/firebase';
-import { appendReportToSheet, ensureHeaders, ReportRowData, getUserSpreadsheetId, setUserSpreadsheetId, createSpreadsheetForUser } from './lib/sheets';
+import { appendReportToSheet, ensureHeaders, ReportRowData, getUserSpreadsheetId, setUserSpreadsheetId, createSpreadsheetForUser, deleteReportFromSheet } from './lib/sheets';
 import html2canvas from 'html2canvas-pro';
 
 // Capture and share helper using Web Share API
@@ -1412,10 +1412,30 @@ export default function App() {
                                     <button 
                                       onClick={async () => {
                                         if (confirm(`Bạn muốn xóa ngày lịch sử báo cáo ${item.date}?`)) {
+                                          if (item.synced && accessToken && userSpreadsheetId) {
+                                            const toastId = toast.loading('Đang xóa dữ liệu trên Google Sheets...');
+                                            try {
+                                              const success = await deleteReportFromSheet(userSpreadsheetId, accessToken, item.date, item.staffName);
+                                              if (success) {
+                                                toast.success('Đã xóa dữ liệu trên Google Sheets!', { id: toastId });
+                                              } else {
+                                                toast.error('Không tìm thấy dòng tương ứng trên Google Sheets để xóa.', { id: toastId });
+                                              }
+                                            } catch (error: any) {
+                                              toast.error(`Lỗi xóa trên Google Sheets: ${error.message}`, { id: toastId });
+                                            }
+                                          } else if (item.synced) {
+                                            toast.error('Báo cáo này đã đồng bộ Google Sheets nhưng bạn chưa đăng nhập Google. Chỉ xóa được local.');
+                                          }
+
                                           await DBService.deleteReport(item.date);
                                           const raw = await DBService.getAllReports();
                                           setHistory(raw);
-                                          toast.success('Đã xóa dữ liệu lịch sử ngày!');
+                                          toast.success('Đã xóa dữ liệu lịch sử ngày thành công!');
+
+                                          if (accessToken && userSpreadsheetId) {
+                                            loadDashboardData();
+                                          }
                                         }
                                       }}
                                       className="py-2 px-3 bg-[#FF3B30]/10 hover:bg-[#FF3B30]/25 rounded-xl font-bold text-[11px] text-[#FF3B30] text-center flex items-center justify-center gap-1.5"

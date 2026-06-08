@@ -289,3 +289,92 @@ export async function fetchSheetReports(spreadsheetId: string, accessToken: stri
   }
 }
 
+/**
+ * Fetches the first sheet's title and sheetId dynamically
+ */
+async function getFirstSheetMetadata(spreadsheetId: string, accessToken: string): Promise<{ title: string; sheetId: number }> {
+  try {
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title,sheets.properties.sheetId`, {
+      headers: { 
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+    });
+    if (!res.ok) throw new Error(`Failed to fetch spreadsheet metadata: ${res.statusText}`);
+    const data = await res.json();
+    if (data.sheets && data.sheets.length > 0) {
+      return {
+        title: data.sheets[0].properties.title || 'Báo cáo',
+        sheetId: data.sheets[0].properties.sheetId || 0
+      };
+    }
+    return { title: 'Báo cáo', sheetId: 0 };
+  } catch (error) {
+    console.warn('Could not fetch spreadsheet metadata dynamically, falling back to default:', error);
+    return { title: 'Báo cáo', sheetId: 0 };
+  }
+}
+
+/**
+ * Deletes a row matching the date and staffName from the Google Sheet
+ */
+export async function deleteReportFromSheet(
+  spreadsheetId: string,
+  accessToken: string,
+  date: string,
+  staffName: string
+): Promise<boolean> {
+  try {
+    const rows = await fetchSheetReports(spreadsheetId, accessToken);
+    if (!rows || rows.length === 0) return false;
+
+    const matchIndex = rows.findIndex(row => {
+      const rowDate = row[0] || '';
+      const rowStaff = row[1] || '';
+      return rowDate === date && rowStaff === staffName;
+    });
+
+    if (matchIndex === -1) {
+      console.warn(`No matching row found in sheet for date=${date} and staffName=${staffName}`);
+      return false;
+    }
+
+    const sheetRowIndex = matchIndex + 1; // 1-indexed for the data rows (Row 2 is index 1)
+
+    const { sheetId } = await getFirstSheetMetadata(spreadsheetId, accessToken);
+
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        requests: [
+          {
+            deleteDimension: {
+              range: {
+                sheetId: sheetId,
+                dimension: 'ROWS',
+                startIndex: sheetRowIndex,
+                endIndex: sheetRowIndex + 1
+              }
+            }
+          }
+        ]
+      })
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.error?.message || `Failed to delete row: ${res.status}`);
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error deleting report from sheet:', error);
+    return false;
+  }
+}
+
