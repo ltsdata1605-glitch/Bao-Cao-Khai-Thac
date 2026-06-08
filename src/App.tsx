@@ -945,7 +945,7 @@ export default function App() {
               </div>
 
               {/* Chiến giá - conditional based on toggle */}
-              {state.showPriceWar && (
+              {!state.showPriceWar && (
                 <>
                   <IOSPriceWarCard 
                     title="Tiếp cận CE (Điện Máy)" 
