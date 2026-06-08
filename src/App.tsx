@@ -12,8 +12,7 @@ import toast, { Toaster } from 'react-hot-toast';
 
 import { PriceWarStats, LeadInfo, ReportState, SyncLog } from './types';
 import { DBService } from './lib/db';
-import { initAuth, googleSignIn, logout , auth } from './lib/firebase';
-import { appendReportToSheet, ensureHeaders, ReportRowData, getUserSpreadsheetId, setUserSpreadsheetId, createSpreadsheetForUser, deleteReportFromSheet } from './lib/sheets';
+import { initAuth, googleSignIn, logout, auth, saveReportToFirestore, deleteReportFromFirestore, fetchTeamReportsFromFirestore } from './lib/firebase';
 import html2canvas from 'html2canvas-pro';
 
 // Capture and share helper using Web Share API
@@ -160,6 +159,10 @@ const displayStatus = (status: string | undefined): string => {
   return status;
 };
 
+const isValidStaffName = (name: string): boolean => {
+  return /^\d+\s*-\s*\S+/.test(name.trim());
+};
+
 export default function App() {
   const [state, setState] = useState<ReportState>(initialState);
 
@@ -176,7 +179,7 @@ export default function App() {
   const [expandedHistoryDate, setExpandedHistoryDate] = useState<string | null>(null);
 
   // Dashboard / Team charts states
-  const [sheetRows, setSheetRows] = useState<any[][]>([]);
+  const [sheetRows, setSheetRows] = useState<any[]>([]);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
   const [dashboardTimeRange, setDashboardTimeRange] = useState<'today' | 'week'>('today');
 
@@ -187,20 +190,17 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [userSpreadsheetId, setUserSpreadsheetIdState] = useState<string | null>(null);
 
-  const loadDashboardData = useCallback(async (token?: string) => {
-    const currentToken = token || accessToken;
-    if (!currentToken || !userSpreadsheetId) return;
+  const loadDashboardData = useCallback(async () => {
     setIsLoadingDashboard(true);
     try {
-      const { fetchSheetReports } = await import('./lib/sheets');
-      const rows = await fetchSheetReports(userSpreadsheetId, currentToken);
-      setSheetRows(rows);
+      const reports = await fetchTeamReportsFromFirestore();
+      setSheetRows(reports);
     } catch (err) {
       console.error('Error loading dashboard data:', err);
     } finally {
       setIsLoadingDashboard(false);
     }
-  }, [accessToken, userSpreadsheetId]);
+  }, []);
 
   const handleResetForm = () => {
     setState(prev => ({
@@ -215,10 +215,10 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (activeTab === 'dashboard' && accessToken) {
+    if (activeTab === 'dashboard' && user) {
       loadDashboardData();
     }
-  }, [activeTab, accessToken, loadDashboardData]);
+  }, [activeTab, user, loadDashboardData]);
 
   // Load Initial Data from IndexedDB on startup
   useEffect(() => {
@@ -236,8 +236,10 @@ export default function App() {
             }));
           }
           setState(rawDraft);
-          if (rawDraft.staffName && rawDraft.staffName.trim()) {
+          if (rawDraft.staffName && rawDraft.staffName.trim() && isValidStaffName(rawDraft.staffName)) {
             setIsEditingName(false);
+          } else {
+            setIsEditingName(true);
           }
         }
 
@@ -267,17 +269,11 @@ export default function App() {
         setUser(firebaseUser);
         setAccessToken(token);
         setNeedsAuth(false);
-        if (firebaseUser?.email) {
-          getUserSpreadsheetId(firebaseUser.email).then(savedId => {
-            if (savedId) setUserSpreadsheetIdState(savedId);
-          });
-        }
       },
       () => {
         setUser(null);
         setAccessToken(null);
         setNeedsAuth(true);
-        setUserSpreadsheetIdState(null);
       }
     );
     return () => unsubscribe();
@@ -419,145 +415,75 @@ export default function App() {
     }
   };
 
-  // Appending the today report directly to spreadsheet
-  const getOrCreateSpreadsheet = async (token: string, email: string, staffName: string): Promise<string> => {
-    let sheetId = await getUserSpreadsheetId(email);
-    if (sheetId) {
-      setUserSpreadsheetIdState(sheetId);
-      return sheetId;
-    }
-    // First time - create a new spreadsheet
-    toast('Đang tạo bảng tính mới cho bạn...', { icon: '📝' });
-    sheetId = await createSpreadsheetForUser(token, staffName);
-    await setUserSpreadsheetId(email, sheetId);
-    setUserSpreadsheetIdState(sheetId);
-    return sheetId;
-  };
-
+  // Synchronizing data directly to Firestore
   const handleGoogleSync = async () => {
     if (!state.staffName.trim()) {
       toast.error('Vui lòng điền Tên Nhân Viên trước khi đồng bộ!');
+      setIsEditingName(true);
+      return;
+    }
+    if (!isValidStaffName(state.staffName)) {
+      toast.error('Vui lòng nhập đúng định dạng "Số - Tên" (Ví dụ: 21707 - Sơn)!');
+      setIsEditingName(true);
       return;
     }
 
-    let currentToken = accessToken;
     let currentUser = user;
-    if (!currentToken) {
+    if (!currentUser) {
       try {
         const result = await googleSignIn();
         if (result) {
           setUser(result.user);
           setAccessToken(result.accessToken);
           setNeedsAuth(false);
-          currentToken = result.accessToken;
           currentUser = result.user;
         } else {
           return;
         }
       } catch (err: any) {
-        toast.error(`Đăng nhập Google thất bại! Để gửi báo cáo lên Google Sheet, ứng dụng cần kết nối Google.`);
+        toast.error(`Đăng nhập Google thất bại! Để gửi báo cáo lên Cloud Firestore, ứng dụng cần kết nối Google.`);
         return;
       }
     }
 
     setIsSyncing(true);
-    const toastId = toast.loading('Đang đồng bộ dữ liệu lên Google Sheet...');
+    const toastId = toast.loading('Đang đồng bộ dữ liệu lên Cloud Firestore...');
 
     try {
-      // 0. Get or create user's personal spreadsheet
-      const email = currentUser?.email || 'unknown';
-      const spreadsheetId = await getOrCreateSpreadsheet(currentToken, email, state.staffName);
-
-      // 1. Ensure Columns headers are created if worksheet is blank
-      await ensureHeaders(spreadsheetId, currentToken);
-
-      // 2. Map data
       const todayStr = new Date().toISOString().slice(0, 10);
-      const rowData: ReportRowData = {
+      const finalReport = {
         date: todayStr,
         staffName: state.staffName,
-        cash: totalCash,
-        installment: totalInstallment,
-        moVi: state.moVi,
-        efficiency: efficiency(),
-        tivi: state.products.tivi,
-        tuLanh: state.products.tuLanh,
-        mayGiat: state.products.mayGiat,
-        mayLanh: state.products.mayLanh,
-        smpTab: state.products.smpTab,
-        laptop: state.products.laptop,
-        otherProduct: state.products.otherName.trim() ? `${state.products.otherName}: ${state.products.otherCount}` : '',
-        mln: state.household.mln,
-        qdh: state.household.qdh,
-        quat: state.household.quat,
-        noiCom: state.household.noiCom,
-        noiChien: state.household.noiChien,
-        locKk: state.household.locKk,
-        otherHousehold: state.household.otherName.trim() ? `${state.household.otherName}: ${state.household.otherCount}` : '',
-        vi: parseFloat(state.services.vi) || 0,
-        vieon: state.services.vieon,
-        sim: state.services.sim,
-        dongHo: state.services.dongHo,
-        insurance: totalInsurance,
-        camera: state.accessories.camera,
-        sdp: state.accessories.sdp,
-        den: state.accessories.den,
-        loa: state.accessories.loa,
-        otherAccessory: state.accessories.otherName?.trim() ? `${state.accessories.otherName}: ${state.accessories.otherCount}` : '',
-        ceTc: Number(state.priceWar.ce.tc) || 0,
-        ceSs: Number(state.priceWar.ce.ss) || 0,
-        ceCh: Number(state.priceWar.ce.ch) || 0,
-        ceBo: Number(state.priceWar.ce.bo) || 0,
-        ceXtt: Number(state.priceWar.ce.xtt) || 0,
-        ictTc: Number(state.priceWar.ict.tc) || 0,
-        ictSs: Number(state.priceWar.ict.ss) || 0,
-        ictCh: Number(state.priceWar.ict.ch) || 0,
-        ictBo: Number(state.priceWar.ict.bo) || 0,
-        ictXtt: Number(state.priceWar.ict.xtt) || 0,
-        leadsText: state.leads.map(lead => {
-          let itemText = `${lead.name} (${lead.phone}) - ${lead.product}`;
-          if (lead.notes) itemText += ` (Ghi chú: ${lead.notes})`;
-          itemText += ` [${lead.status || 'Chưa liên hệ'}${lead.statusDetails ? `: ${lead.statusDetails}` : ''}]`;
-          return itemText;
-        }).join('; ')
+        cash: state.cash,
+        installment: state.installment,
+        products: { ...state.products },
+        household: { ...state.household },
+        services: { ...state.services },
+        accessories: { ...state.accessories },
+        priceWar: { ...state.priceWar },
+        leads: [...state.leads],
+        synced: true,
+        syncedAt: new Date().toISOString()
       };
 
-      // 3. Append to User's personal Spreadsheet
-      const res = await appendReportToSheet(spreadsheetId, currentToken, rowData);
+      await saveReportToFirestore(finalReport);
 
-      if (res.success) {
-        toast.success('Đồng bộ Google Sheet thành công!', { id: toastId });
-        await DBService.addSyncLog('success', `Báo cáo tự động lưu Google Sheet: dòng "${res.range}"`);
-        
-        // 4. Save synced report day to IndexedDB final store explicitly
-        const finalReport = {
-          date: todayStr,
-          staffName: state.staffName,
-          cash: state.cash,
-          installment: state.installment,
-          products: { ...state.products },
-          household: { ...state.household },
-          services: { ...state.services },
-          accessories: { ...state.accessories },
-          priceWar: { ...state.priceWar },
-          leads: [...state.leads],
-          synced: true,
-          syncedAt: new Date().toISOString()
-        };
-        await DBService.saveReport(finalReport);
-        
-        // Reload local reports state arrays
-        const rawReports = await DBService.getAllReports();
-        setHistory(rawReports);
+      toast.success('Đồng bộ Cloud Firestore thành công!', { id: toastId });
+      await DBService.addSyncLog('success', `Báo cáo tự động lưu Cloud Firestore`);
+      
+      await DBService.saveReport(finalReport);
+      
+      // Reload local reports state arrays
+      const rawReports = await DBService.getAllReports();
+      setHistory(rawReports);
+
+      // Reload dashboard if active
+      if (activeTab === 'dashboard') {
+        loadDashboardData();
       }
     } catch (err: any) {
       toast.error(`Đồng bộ thất bại: ${err.message}`, { id: toastId });
-      await DBService.addSyncLog('error', `Lỗi kết nối Google Sheets: ${err.message}`);
-      if (err.message?.toLowerCase().includes('insufficient') || err.message?.toLowerCase().includes('scope')) {
-        setAccessToken(null);
-        setUser(null);
-        setNeedsAuth(true);
-      }
+      await DBService.addSyncLog('error', `Lỗi kết nối Cloud Firestore: ${err.message}`);
     } finally {
       setIsSyncing(false);
       const rawLogs = await DBService.getSyncLogs();
@@ -658,25 +584,28 @@ export default function App() {
       setIsEditingName(true);
       return;
     }
+    if (!isValidStaffName(state.staffName)) {
+      toast.error('Vui lòng nhập đúng định dạng "Số - Tên" (Ví dụ: 21707 - Sơn)!');
+      setIsEditingName(true);
+      return;
+    }
 
-    let currentToken = accessToken;
     let currentUser = user;
-    if (!currentToken) {
-      toast('Bạn chưa đăng nhập Google. Đang chuyển tới đăng nhập để đồng bộ báo cáo...', { icon: '🔑' });
+    if (!currentUser) {
+      toast('Bạn chưa đăng nhập. Đang chuyển tới đăng nhập để đồng bộ báo cáo...', { icon: '🔑' });
       try {
         const result = await googleSignIn();
         if (result) {
           setUser(result.user);
           setAccessToken(result.accessToken);
           setNeedsAuth(false);
-          currentToken = result.accessToken;
           currentUser = result.user;
         } else {
-          toast.error('Vui lòng đăng nhập Google để thực hiện báo cáo.');
+          toast.error('Vui lòng đăng nhập để thực hiện báo cáo.');
           return;
         }
       } catch (err: any) {
-        toast.error(`Lỗi đăng nhập Google: ${err.message}`);
+        toast.error(`Lỗi đăng nhập: ${err.message}`);
         return;
       }
     }
@@ -684,59 +613,6 @@ export default function App() {
     // Capture current values to avoid referencing the reset state during asynchronous execution
     const todayStr = new Date().toISOString().slice(0, 10);
     const capturedStaffName = state.staffName;
-    const currentCash = parseFloat(state.cash) || 0;
-    const currentInstallment = parseFloat(state.installment) || 0;
-    const currentInsurance = parseFloat(state.services.insurance) || 0;
-    const currentEfficiency = efficiency();
-
-    const rowData: ReportRowData = {
-      date: todayStr,
-      staffName: capturedStaffName,
-      cash: currentCash,
-      installment: currentInstallment,
-      moVi: state.moVi,
-      efficiency: currentEfficiency,
-      tivi: state.products.tivi,
-      tuLanh: state.products.tuLanh,
-      mayGiat: state.products.mayGiat,
-      mayLanh: state.products.mayLanh,
-      smpTab: state.products.smpTab,
-      laptop: state.products.laptop,
-      otherProduct: state.products.otherName.trim() ? `${state.products.otherName}: ${state.products.otherCount}` : '',
-      mln: state.household.mln,
-      qdh: state.household.qdh,
-      quat: state.household.quat,
-      noiCom: state.household.noiCom,
-      noiChien: state.household.noiChien,
-      locKk: state.household.locKk,
-      otherHousehold: state.household.otherName.trim() ? `${state.household.otherName}: ${state.household.otherCount}` : '',
-      vi: parseFloat(state.services.vi) || 0,
-      vieon: state.services.vieon,
-      sim: state.services.sim,
-      dongHo: state.services.dongHo,
-      insurance: currentInsurance,
-      camera: state.accessories.camera,
-      sdp: state.accessories.sdp,
-      den: state.accessories.den,
-      loa: state.accessories.loa,
-      otherAccessory: state.accessories.otherName?.trim() ? `${state.accessories.otherName}: ${state.accessories.otherCount}` : '',
-      ceTc: Number(state.priceWar.ce.tc) || 0,
-      ceSs: Number(state.priceWar.ce.ss) || 0,
-      ceCh: Number(state.priceWar.ce.ch) || 0,
-      ceBo: Number(state.priceWar.ce.bo) || 0,
-      ceXtt: Number(state.priceWar.ce.xtt) || 0,
-      ictTc: Number(state.priceWar.ict.tc) || 0,
-      ictSs: Number(state.priceWar.ict.ss) || 0,
-      ictCh: Number(state.priceWar.ict.ch) || 0,
-      ictBo: Number(state.priceWar.ict.bo) || 0,
-      ictXtt: Number(state.priceWar.ict.xtt) || 0,
-      leadsText: state.leads.map(lead => {
-        let itemText = `${lead.name} (${lead.phone}) - ${lead.product}`;
-        if (lead.notes) itemText += ` (Ghi chú: ${lead.notes})`;
-        itemText += ` [${displayStatus(lead.status)}${lead.statusDetails ? `: ${lead.statusDetails}` : ''}]`;
-        return itemText;
-      }).join('; ')
-    };
 
     const finalReport = {
       date: todayStr,
@@ -775,34 +651,28 @@ export default function App() {
     setWarnings([]);
     toast.success('Đã lưu nháp local & làm sạch biểu mẫu để nhập tiếp đơn tiếp theo!', { icon: '🔄' });
 
-    // 3. Sync to Google Sheets
+    // 3. Sync to Firestore
     setIsSyncing(true);
-    const toastId = toast.loading('Đang ghi dữ liệu báo cáo vào Google Sheet...');
+    const toastId = toast.loading('Đang ghi dữ liệu báo cáo vào Cloud Firestore...');
 
     try {
-      const email = currentUser?.email || 'unknown';
-      const spreadsheetId = await getOrCreateSpreadsheet(currentToken, email, capturedStaffName);
-      await ensureHeaders(spreadsheetId, currentToken);
-      
-      const res = await appendReportToSheet(spreadsheetId, currentToken, rowData);
+      await saveReportToFirestore(finalReport);
 
-      if (res.success) {
-        toast.success('Đồng bộ Google Sheet thành công!', { id: toastId });
-        await DBService.addSyncLog('success', `Báo cáo tự động lưu Google Sheet: dòng ${res.range}`);
-        
-        finalReport.synced = true;
-        await DBService.saveReport(finalReport);
-        const rawReports = await DBService.getAllReports();
-        setHistory(rawReports);
+      toast.success('Đồng bộ Cloud Firestore thành công!', { id: toastId });
+      await DBService.addSyncLog('success', `Báo cáo tự động lưu Cloud Firestore`);
+      
+      finalReport.synced = true;
+      await DBService.saveReport(finalReport);
+      const rawReports = await DBService.getAllReports();
+      setHistory(rawReports);
+
+      // Reload dashboard if active
+      if (activeTab === 'dashboard') {
+        loadDashboardData();
       }
     } catch (err: any) {
-      toast.error(`Đồng bộ Google Sheet thất bại: ${err.message}`, { id: toastId });
+      toast.error(`Đồng bộ Cloud Firestore thất bại: ${err.message}`, { id: toastId });
       await DBService.addSyncLog('error', `Lỗi đồng bộ tự động: ${err.message}`);
-      if (err.message?.toLowerCase().includes('insufficient') || err.message?.toLowerCase().includes('scope')) {
-        setAccessToken(null);
-        setUser(null);
-        setNeedsAuth(true);
-      }
     } finally {
       setIsSyncing(false);
       const rawLogs = await DBService.getSyncLogs();
@@ -818,35 +688,8 @@ export default function App() {
   );
 
   const getUnifiedData = (): any[] => {
-    if (accessToken && sheetRows && sheetRows.length > 0) {
-      return sheetRows.map(row => {
-        return {
-          date: row[0] || '',
-          staffName: row[1] || 'Ẩn danh',
-          cash: parseFloat(row[2]) || 0,
-          installment: parseFloat(row[3]) || 0,
-          tivi: parseInt(row[5]) || 0,
-          tuLanh: parseInt(row[6]) || 0,
-          mayGiat: parseInt(row[7]) || 0,
-          mayLanh: parseInt(row[8]) || 0,
-          smpTab: parseInt(row[9]) || 0,
-          laptop: parseInt(row[10]) || 0,
-          mln: parseInt(row[12]) || 0,
-          qdh: parseInt(row[13]) || 0,
-          quat: parseInt(row[14]) || 0,
-          noiCom: parseInt(row[15]) || 0,
-          locKk: parseInt(row[16]) || 0,
-          insurance: parseFloat(row[18]) || 0,
-          maintenance: parseFloat(row[19]) || 0,
-          vieon: parseInt(row[20]) || 0,
-          sim: parseInt(row[21]) || 0,
-          camera: parseInt(row[22]) || 0,
-          sdp: parseInt(row[23]) || 0,
-          taiNghe: parseInt(row[24]) || 0,
-          den: parseInt(row[25]) || 0,
-          dongHo: parseInt(row[26]) || 0,
-        };
-      });
+    if (user && sheetRows && sheetRows.length > 0) {
+      return sheetRows;
     } else {
       return history.map(item => ({
         date: item.date || '',
@@ -903,8 +746,24 @@ export default function App() {
               className="bg-transparent text-xs font-semibold text-[#1C1C1E] dark:text-neutral-100 border-none outline-none focus:ring-0 w-20 py-0"
               value={state.staffName}
               onChange={e => handleStateChange(p => ({ ...p, staffName: e.target.value }))}
-              onBlur={() => { if (state.staffName.trim()) setIsEditingName(false); }}
-              onKeyDown={e => { if (e.key === 'Enter' && state.staffName.trim()) setIsEditingName(false); }}
+              onBlur={() => { 
+                if (state.staffName.trim()) {
+                  if (isValidStaffName(state.staffName)) {
+                    setIsEditingName(false);
+                  } else {
+                    toast.error('Vui lòng nhập đúng định dạng "Số - Tên" (Ví dụ: 21707 - Sơn)');
+                  }
+                } 
+              }}
+              onKeyDown={e => { 
+                if (e.key === 'Enter' && state.staffName.trim()) {
+                  if (isValidStaffName(state.staffName)) {
+                    setIsEditingName(false);
+                  } else {
+                    toast.error('Vui lòng nhập đúng định dạng "Số - Tên" (Ví dụ: 21707 - Sơn)');
+                  }
+                } 
+              }}
             />
           ) : (
             <span 
@@ -1318,7 +1177,7 @@ export default function App() {
                   <div className="py-12 text-center text-xs text-neutral-400 space-y-2">
                     <History size={36} className="mx-auto text-neutral-300 stroke-[1.5px]" />
                     <p>Chưa có ngày báo cáo nào hoàn chỉnh được lưu trữ.</p>
-                    <p className="text-[10px] text-neutral-400/80">Lưu dữ liệu trên Google Sheets sẽ tự động tạo log ngày hoàn chỉnh lưu tại đây.</p>
+                    <p className="text-[10px] text-neutral-400/80">Lưu dữ liệu trên Cloud Firestore sẽ tự động tạo log ngày hoàn chỉnh lưu tại đây.</p>
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -1412,20 +1271,20 @@ export default function App() {
                                     <button 
                                       onClick={async () => {
                                         if (confirm(`Bạn muốn xóa ngày lịch sử báo cáo ${item.date}?`)) {
-                                          if (item.synced && accessToken && userSpreadsheetId) {
-                                            const toastId = toast.loading('Đang xóa dữ liệu trên Google Sheets...');
+                                          if (item.synced && user) {
+                                            const toastId = toast.loading('Đang xóa dữ liệu trên Cloud Firestore...');
                                             try {
-                                              const success = await deleteReportFromSheet(userSpreadsheetId, accessToken, item.date, item.staffName);
+                                              const success = await deleteReportFromFirestore(item.date, item.staffName);
                                               if (success) {
-                                                toast.success('Đã xóa dữ liệu trên Google Sheets!', { id: toastId });
+                                                toast.success('Đã xóa dữ liệu trên Cloud Firestore!', { id: toastId });
                                               } else {
-                                                toast.error('Không tìm thấy dòng tương ứng trên Google Sheets để xóa.', { id: toastId });
+                                                toast.error('Không thể xóa dữ liệu trên Cloud Firestore.', { id: toastId });
                                               }
                                             } catch (error: any) {
-                                              toast.error(`Lỗi xóa trên Google Sheets: ${error.message}`, { id: toastId });
+                                              toast.error(`Lỗi xóa trên Cloud Firestore: ${error.message}`, { id: toastId });
                                             }
                                           } else if (item.synced) {
-                                            toast.error('Báo cáo này đã đồng bộ Google Sheets nhưng bạn chưa đăng nhập Google. Chỉ xóa được local.');
+                                            toast.error('Báo cáo này đã đồng bộ Cloud Firestore nhưng bạn chưa đăng nhập. Chỉ xóa được local.');
                                           }
 
                                           await DBService.deleteReport(item.date);
@@ -1433,7 +1292,7 @@ export default function App() {
                                           setHistory(raw);
                                           toast.success('Đã xóa dữ liệu lịch sử ngày thành công!');
 
-                                          if (accessToken && userSpreadsheetId) {
+                                          if (user) {
                                             loadDashboardData();
                                           }
                                         }
@@ -1495,9 +1354,9 @@ export default function App() {
                 ) : (
                   <div className="flex flex-col items-center py-2">
                     <div className="w-12 h-12 bg-neutral-100 dark:bg-neutral-800 rounded-full flex items-center justify-center text-neutral-400 mb-2">
-                      <FileSpreadsheet size={22} />
+                      <Cpu size={22} />
                     </div>
-                    <h2 className="text-sm font-bold text-neutral-800 dark:text-neutral-200 leading-tight">Yêu cầu kết nối Google Sheets</h2>
+                    <h2 className="text-sm font-bold text-neutral-800 dark:text-neutral-200 leading-tight">Yêu cầu kết nối Cloud Firestore</h2>
                     <p className="text-[10.5px] text-neutral-400 max-w-xs mt-1 leading-normal px-2">
                       Do bạn chưa đăng nhập, vui lòng thực hiện ký tên & cấp quyền để tiếp tục đồng bộ báo cáo khai thác.
                     </p>
@@ -1512,28 +1371,22 @@ export default function App() {
                 )}
               </div>
 
-              {/* Target Sheets Connection details screen */}
+              {/* Target Cloud Firestore Connection details screen */}
               <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-4 shadow-xs space-y-3">
-                <div className="flex items-center gap-1 pb-1.5 border-b border-neutral-100 dark:border-neutral-800">
-                  <FileSpreadsheet size={15} className="text-[#34C759]" />
-                  <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Bảng tính liên kết</span>
+                <div className="flex items-center gap-1.5 pb-1.5 border-b border-neutral-100 dark:border-neutral-800">
+                  <Cpu size={15} className="text-[#007AFF]" />
+                  <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Cơ sở dữ liệu Cloud Firestore</span>
                 </div>
                 
                 <div className="space-y-1">
-                  <p className="text-[10px] font-bold text-neutral-400 uppercase">Spreadsheet URL</p>
-                  {userSpreadsheetId ? (
-                    <a 
-                      href={`https://docs.google.com/spreadsheets/d/${userSpreadsheetId}/edit`}
-                      target="_blank" 
-                      rel="noreferrer"
-                      className="text-xs text-[#007AFF] font-bold break-all flex items-center gap-1 hover:underline"
-                    >
-                      <span>https://docs.google.com/spreadsheets/d/${userSpreadsheetId}/edit</span>
-                      <ExternalLink size={12} className="shrink-0" />
-                    </a>
+                  <p className="text-[10px] font-bold text-neutral-400 uppercase">Trạng thái kết nối</p>
+                  {user ? (
+                    <p className="text-xs text-[#34C759] font-bold break-all flex items-center gap-1">
+                      <span>Đang hoạt động (gen-lang-client-0491638315)</span>
+                    </p>
                   ) : (
                     <p className="text-xs text-neutral-500 font-semibold italic">
-                      {user ? 'Chưa tạo bảng tính (hệ thống sẽ tự động tạo khi bạn bấm báo cáo/đồng bộ lần đầu)' : 'Vui lòng kết nối tài khoản Google để tạo bảng tính.'}
+                      Vui lòng kết nối tài khoản Google để kích hoạt cơ sở dữ liệu nhóm.
                     </p>
                   )}
                 </div>
@@ -1541,7 +1394,7 @@ export default function App() {
                 <div className="text-[10px] text-neutral-400/90 leading-relaxed bg-neutral-1050 dark:bg-neutral-950 p-2.5 rounded-xl border border-neutral-200/30 dark:border-neutral-800 flex gap-2">
                   <Info size={14} className="text-[#007AFF] shrink-0" />
                   <div>
-                    Mỗi lần bấm đồng bộ, báo cáo sẽ được liên kết và ghi trực tiếp vào dòng mới nhất của biểu đồ. Dữ liệu bao gồm 38 cột phân tích cụ thể (Doanh thu, S.phẩm, Dịch vụ, Chiến giá...).
+                    Mỗi lần bấm đồng bộ, báo cáo sẽ được lưu trực tiếp vào collection <b>reports</b> trên Cloud Firestore với ID dạng <code>{"{staffName}_{date}"}</code>. Điều này giúp đồng bộ tức thời số liệu của cả nhóm cửa hàng mà không bị giới hạn phiên đăng nhập 1 tiếng.
                   </div>
                 </div>
               </div>
@@ -1647,7 +1500,7 @@ export default function App() {
                     </div>
 
                     {/* Refresh action */}
-                    {accessToken && (
+                    {user && (
                       <button
                         onClick={() => {
                           loadDashboardData();
@@ -1673,11 +1526,11 @@ export default function App() {
                 </div>
 
                 {/* Connection status badge */}
-                {accessToken ? (
+                {user ? (
                   <div className="flex items-center gap-1.5 p-2 bg-[#34C759]/10 text-[#34C759] border border-[#34C759]/20 rounded-xl">
                     <span className="w-1.5 h-1.5 bg-[#34C759] rounded-full animate-pulse" />
-                    <span className="text-[9.5px] font-extrabold uppercase">Dữ liệu từ Google Sheets</span>
-                    <span className="text-[9.5px] text-[#34C759]/80 ml-auto">(Tự toán cả nhóm)</span>
+                    <span className="text-[9.5px] font-extrabold uppercase">Dữ liệu từ Cloud Firestore</span>
+                    <span className="text-[9.5px] text-[#34C759]/80 ml-auto">(Đồng bộ cả nhóm)</span>
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2 p-3 bg-amber-500/10 text-amber-600 dark:text-amber-500 border border-amber-500/20 rounded-xl">
@@ -1686,13 +1539,13 @@ export default function App() {
                       <span className="text-[9.5px] font-extrabold uppercase">Dữ liệu cá nhân (Local)</span>
                     </div>
                     <p className="text-[9.5px] leading-relaxed opacity-95">
-                      Bạn chưa kết nối Google. Đăng nhập tại màn hình <b>Đồng bộ</b> để xem số liệu tích luỹ chung của cả nhóm cửa hàng từ Google Sheets.
+                      Bạn chưa đăng nhập. Đăng nhập tại màn hình <b>Đồng bộ</b> để xem số liệu tích luỹ chung của cả nhóm cửa hàng từ Cloud Firestore.
                     </p>
                     <button
                       onClick={() => setActiveTab('sync')}
                       className="text-left font-bold text-[9px] hover:underline flex items-center gap-1 shrink-0 mt-0.5 text-blue-500"
                     >
-                      <span>Sang tab Đồng bộ để kết nối Google ⚡</span>
+                      <span>Sang tab Đồng bộ để kết nối tài khoản Google ⚡</span>
                     </button>
                   </div>
                 )}
