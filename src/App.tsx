@@ -944,26 +944,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Chiến giá - conditional based on toggle */}
-              {!state.showPriceWar && (
-                <>
-                  <IOSPriceWarCard 
-                    title="Tiếp cận CE (Điện Máy)" 
-                    stats={state.priceWar.ce} 
-                    colorClass="text-[#FF3B30]" 
-                    badgeColor="bg-[#FF3B30]/10 border-[#FF3B30]/20 text-[#FF3B30]"
-                    onChange={(ceStats) => handleStateChange(p => ({ ...p, priceWar: { ...p.priceWar, ce: ceStats } }))}
-                  />
 
-                  <IOSPriceWarCard 
-                    title="Tiếp cận ICT (Điện Thoại)" 
-                    stats={state.priceWar.ict} 
-                    colorClass="text-[#A2A2A7]" 
-                    badgeColor="bg-neutral-100 dark:bg-neutral-800 border-neutral-200 text-neutral-500"
-                    onChange={(ictStats) => handleStateChange(p => ({ ...p, priceWar: { ...p.priceWar, ict: ictStats } }))}
-                  />
-                </>
-              )}
 
               {/* Ghi chú */}
               <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200/50 dark:border-neutral-800 p-3 shadow-sm space-y-2">
@@ -1810,53 +1791,7 @@ function IOSStepplet({ value, onMinus, onPlus }: { value: number; onMinus: () =>
   );
 }
 
-function IOSPriceWarCard({ 
-  title, stats, colorClass, badgeColor, onChange 
-}: { 
-  title: string; stats: PriceWarStats; colorClass: string; badgeColor: string; onChange: (s: PriceWarStats) => void 
-}) {
-  const update = (field: keyof PriceWarStats, val: string) => {
-    onChange({ ...stats, [field]: val });
-  };
 
-  return (
-    <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-3xl p-4 shadow-sm  space-y-3.5">
-      <div className="flex items-center gap-1.5 pb-2 border-b border-neutral-100 dark:border-neutral-800">
-        <Sword size={14} className={`${colorClass} stroke-[2.5px]`} />
-        <span className={`text-xs font-bold uppercase tracking-wider ${colorClass}`}>{title}</span>
-      </div>
-
-      <div className="grid grid-cols-5 gap-1.5 select-none">
-        <IOSPriceWarCell label="T.công" value={stats.tc} onChange={v => update('tc', v)} badgeColor={badgeColor} />
-        <IOSPriceWarCell label="So giá" value={stats.ss} onChange={v => update('ss', v)} badgeColor={badgeColor} />
-        <IOSPriceWarCell label="Yêu/CH" value={stats.ch} onChange={v => update('ch', v)} badgeColor={badgeColor} />
-        <IOSPriceWarCell label="Bỏ" value={stats.bo} onChange={v => update('bo', v)} badgeColor={badgeColor} />
-        <IOSPriceWarCell label="Xin TT" value={stats.xtt} onChange={v => update('xtt', v)} badgeColor={badgeColor} />
-      </div>
-    </div>
-  );
-}
-
-function IOSPriceWarCell({ label, value, onChange, badgeColor }: { label: string; value: string; onChange: (v: string) => void; badgeColor: string }) {
-  return (
-    <div className="space-y-1">
-      <span className="block text-[8px] font-black text-center text-neutral-400 capitalize truncate">{label}</span>
-      <input 
-        type="number" 
-        inputMode="decimal"
-        min="0"
-        placeholder="-" 
-        className="w-full text-center text-xs font-bold bg-[#EEEEF0] dark:bg-neutral-850 rounded-xl p-2 focus:ring-0 focus:outline-none focus:border-[#007AFF] border-none"
-        value={value}
-        onKeyDown={blockNonNumericKeys}
-        onChange={e => {
-          const val = e.target.value;
-          if (val === '' || parseInt(val) >= 0) onChange(val);
-        }}
-      />
-    </div>
-  );
-}
 
 // Leads customer logic sub components
 function LeadsManager({ 
