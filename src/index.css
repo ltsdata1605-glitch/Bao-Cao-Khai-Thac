@@ -32,10 +32,9 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
-/* Disable iOS auto-zoom on form inputs by forcing font-size to be at least 16px */
-input, select, textarea,
-input:focus, select:focus, textarea:focus {
-  font-size: 16px !important;
+/* Let font size utility classes control input sizes */
+input, select, textarea {
+  font-family: inherit;
 }
 
 /* Prevent double-tap zoom and improve touch responsiveness on mobile */

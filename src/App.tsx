@@ -1712,13 +1712,12 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {/* --- iOS Glassmorphic bottom Navigation Bar --- */}
       <footer className="fixed bottom-0 left-0 right-0 h-16 bg-[#F9F9F9]/85 dark:bg-[#161616]/85 backdrop-blur-xl border-t border-[#C6C6C8]/30 dark:border-neutral-800/80 z-40 flex items-center justify-around px-1 shadow-inner">
-        <IOSInterfaceTabButton label="Báo Cáo" active={activeTab === 'report'} icon={<Tv size={18} />} onClick={() => setActiveTab('report')} />
-        <IOSInterfaceTabButton label="Khách" active={activeTab === 'leads'} icon={<UserPlus size={18} />} onClick={() => setActiveTab('leads')} />
-        <IOSInterfaceTabButton label="Biểu đồ" active={activeTab === 'dashboard'} icon={<BarChart3 size={18} />} onClick={() => setActiveTab('dashboard')} />
-        <IOSInterfaceTabButton label="Nhật Ký" active={activeTab === 'history'} icon={<History size={18} />} onClick={() => setActiveTab('history')} />
-        <IOSInterfaceTabButton label="Đồng bộ" active={activeTab === 'sync'} icon={<Settings size={18} />} onClick={() => setActiveTab('sync')} />
+        <IOSInterfaceTabButton label="Báo Cáo" active={activeTab === 'report'} icon={<Tv size={20} />} onClick={() => setActiveTab('report')} />
+        <IOSInterfaceTabButton label="Khách" active={activeTab === 'leads'} icon={<UserPlus size={20} />} onClick={() => setActiveTab('leads')} />
+        <IOSInterfaceTabButton label="Biểu đồ" active={activeTab === 'dashboard'} icon={<BarChart3 size={20} />} onClick={() => setActiveTab('dashboard')} />
+        <IOSInterfaceTabButton label="Nhật Ký" active={activeTab === 'history'} icon={<History size={20} />} onClick={() => setActiveTab('history')} />
+        <IOSInterfaceTabButton label="Đồng bộ" active={activeTab === 'sync'} icon={<Settings size={20} />} onClick={() => setActiveTab('sync')} />
       </footer>
 
       {/* Database Clear confirmation Modal dialog */}
@@ -2250,10 +2249,10 @@ function IOSInterfaceTabButton({ label, active, icon, onClick }: IOSInterfaceTab
       onClick={onClick}
       className={`flex flex-col items-center justify-center flex-1 h-full select-none cursor-pointer group active:scale-95 transition-transform ${active ? 'text-[#007AFF]' : 'text-[#8E8E93] dark:text-neutral-500'}`}
     >
-      <div className="transform group-hover:scale-105 transition-all mb-0.5">
+      <div className="transform group-hover:scale-105 transition-all">
         {icon}
       </div>
-      <span className="text-[9.5px] font-bold leading-none tracking-tight">
+      <span className="text-[10.5px] font-semibold mt-1 leading-none tracking-tight">
         {label}
       </span>
     </button>
