@@ -1038,28 +1038,42 @@ export default function App() {
                 ) : (
                   <div className="space-y-2">
                     {history
-                      .filter(h => !selectedDateFilter || h.date === selectedDateFilter)
-                      .sort((a, b) => b.date.localeCompare(a.date))
-                      .map((item, idx) => {
-                        const isExpanded = expandedHistoryDate === item.date;
+                      .filter(h => {
+                        const matchesDate = !selectedDateFilter || h.date === selectedDateFilter;
+                        const query = historySearchQuery.trim().toLowerCase();
+                        if (!query) return matchesDate;
                         
-                         const totalProductsCount = 
-                           (item.products?.tivi || 0) +
-                           (item.products?.tuLanh || 0) +
-                           (item.products?.mayGiat || 0) +
-                           (item.products?.mayLanh || 0) +
-                           (item.products?.smpTab || 0) +
-                           (item.products?.laptop || 0) +
-                           (item.products?.otherCount || 0);
+                        const matchesStaff = (h.staffName || '').toLowerCase().includes(query);
+                        const totalRev = (Number(h.cash) || 0) + (Number(h.installment) || 0);
+                        const matchesRevenue = String(totalRev).includes(query);
+                        
+                        return matchesDate && (matchesStaff || matchesRevenue);
+                      })
+                      .sort((a, b) => {
+                        const timeA = a.syncedAt || a.date || '';
+                        const timeB = b.syncedAt || b.date || '';
+                        return timeB.localeCompare(timeA);
+                      })
+                      .map((item, idx) => {
+                        const isExpanded = expandedHistoryId === item.id;
+                        
+                        const totalProductsCount = 
+                          (item.products?.tivi || 0) +
+                          (item.products?.tuLanh || 0) +
+                          (item.products?.mayGiat || 0) +
+                          (item.products?.mayLanh || 0) +
+                          (item.products?.smpTab || 0) +
+                          (item.products?.laptop || 0) +
+                          (item.products?.otherCount || 0);
 
-                         const totalHouseholdCount = 
-                           (item.household?.mln || 0) +
-                           (item.household?.qdh || 0) +
-                           (item.household?.quat || 0) +
-                           (item.household?.noiCom || 0) +
-                           (item.household?.noiChien || 0) +
-                           (item.household?.locKk || 0) +
-                           (item.household?.otherCount || 0);
+                        const totalHouseholdCount = 
+                          (item.household?.mln || 0) +
+                          (item.household?.qdh || 0) +
+                          (item.household?.quat || 0) +
+                          (item.household?.noiCom || 0) +
+                          (item.household?.noiChien || 0) +
+                          (item.household?.locKk || 0) +
+                          (item.household?.otherCount || 0);
  
                          const totalAccessoriesCount = 
                            (item.accessories?.camera || 0) +
@@ -1068,23 +1082,46 @@ export default function App() {
                            (item.accessories?.den || 0) +
                            (item.accessories?.dongHo || 0);
  
-                         const totalLeadsCount = item.leads?.length || 0;
+                         const totalRevenue = (Number(item.cash) || 0) + (Number(item.installment) || 0);
+
+                         // Parse updated date & time
+                         const getFormattedDateTime = (isoStr: string, defaultDate: string) => {
+                           if (!isoStr) {
+                             const parts = defaultDate.split('-');
+                             return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : defaultDate;
+                           }
+                           try {
+                             const d = new Date(isoStr);
+                             const datePart = d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                             const timePart = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                             return `${datePart} lúc ${timePart}`;
+                           } catch (e) {
+                             return defaultDate;
+                           }
+                         };
+                         const updatedTimeStr = getFormattedDateTime(item.syncedAt, item.date);
  
                          return (
                            <div 
-                             key={idx} 
+                             key={item.id || idx} 
                              className="border border-neutral-100 dark:border-neutral-800/80 rounded-xl overflow-hidden shadow-xs bg-neutral-50/50 dark:bg-neutral-850"
                            >
                              <div 
                                className="px-3.5 py-3.5 flex flex-col gap-2 cursor-pointer hover:bg-neutral-100/50 dark:hover:bg-neutral-800 transition-all select-none"
-                               onClick={() => setExpandedHistoryDate(isExpanded ? null : item.date)}
+                               onClick={() => setExpandedHistoryId(isExpanded ? null : item.id)}
                              >
-                               {/* First row: Date, Staff, Status badge */}
+                               {/* First row: Revenue badge, Updated time, Staff name */}
                                <div className="flex items-center justify-between w-full">
-                                 <div className="flex items-center gap-1.5">
-                                   <Calendar size={13} className="text-[#007AFF]" />
-                                   <span className="text-xs font-bold text-[#1C1C1E] dark:text-neutral-100">{item.date}</span>
-                                   <span className="text-[10px] text-neutral-400 font-bold">({item.staffName || 'Bạn'})</span>
+                                 <div className="flex items-center gap-2">
+                                   <span className="text-xs font-extrabold text-[#007AFF] bg-[#007AFF]/10 px-2.5 py-0.5 rounded-lg">
+                                     Đơn {totalRevenue} Tr
+                                   </span>
+                                   <span className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400">
+                                     Cập nhật: {updatedTimeStr}
+                                   </span>
+                                   <span className="text-[10px] text-neutral-400 font-medium truncate max-w-[100px]">
+                                     ({item.staffName || 'Bạn'})
+                                   </span>
                                  </div>
                                  <div className="flex items-center gap-1.5">
                                    <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-[#34C759]/10 text-[#34C759] flex items-center gap-0.5">
