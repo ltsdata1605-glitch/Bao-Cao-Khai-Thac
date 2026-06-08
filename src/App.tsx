@@ -10,7 +10,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import toast, { Toaster } from 'react-hot-toast';
 
-import { PriceWarStats, LeadInfo, ReportState, SyncLog } from './types';
+import { PriceWarStats, LeadInfo, ReportState, SyncLog, CustomField } from './types';
 import { DBService } from './lib/db';
 import html2canvas from 'html2canvas-pro';
 
@@ -186,6 +186,66 @@ export default function App() {
   // Synchronization State
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // Custom Fields States
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [customFieldTargetGroup, setCustomFieldTargetGroup] = useState<CustomField['group'] | null>(null);
+  const [newFieldName, setNewFieldName] = useState('');
+  const [newFieldType, setNewFieldType] = useState<CustomField['type']>('count');
+
+  const handleAddCustomField = async () => {
+    if (!newFieldName.trim() || !customFieldTargetGroup) {
+      toast.error('Vui lòng điền tên danh mục mới!');
+      return;
+    }
+
+    const fieldId = 'cf_' + newFieldName.trim().toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now().toString().slice(-4);
+    
+    const newField: CustomField = {
+      id: fieldId,
+      name: newFieldName.trim(),
+      group: customFieldTargetGroup,
+      type: newFieldType
+    };
+
+    const updated = [...customFields, newField];
+    setCustomFields(updated);
+    await DBService.saveCustomFields(updated);
+
+    // Add key to state immediately
+    handleStateChange(prev => ({
+      ...prev,
+      [customFieldTargetGroup]: {
+        ...prev[customFieldTargetGroup],
+        [fieldId]: newFieldType === 'count' ? 0 : ''
+      }
+    }));
+
+    setNewFieldName('');
+    setCustomFieldTargetGroup(null);
+    toast.success(`Đã thêm danh mục mới: ${newField.name}`);
+  };
+
+  const handleDeleteCustomField = async (cf: CustomField) => {
+    if (confirm(`Bạn có chắc chắn muốn xoá danh mục "${cf.name}" không?`)) {
+      const updated = customFields.filter(f => f.id !== cf.id);
+      setCustomFields(updated);
+      await DBService.saveCustomFields(updated);
+
+      // Clean from state
+      handleStateChange(prev => {
+        const next = { ...prev };
+        if (next[cf.group]) {
+          const groupData = { ...next[cf.group] };
+          delete groupData[cf.id];
+          next[cf.group] = groupData;
+        }
+        return next;
+      });
+
+      toast.success(`Đã xoá danh mục: ${cf.name}`);
+    }
+  };
+
   const loadDashboardData = useCallback(async () => {
     setIsLoadingDashboard(true);
     try {
@@ -195,6 +255,7 @@ export default function App() {
         staffName: item.staffName || 'Bạn (Local)',
         cash: parseFloat(item.cash) || 0,
         installment: parseFloat(item.installment) || 0,
+        moVi: item.moVi || false,
         tivi: item.products?.tivi || 0,
         tuLanh: item.products?.tuLanh || 0,
         mayGiat: item.products?.mayGiat || 0,
@@ -207,22 +268,35 @@ export default function App() {
         noiCom: item.household?.noiCom || 0,
         locKk: item.household?.locKk || 0,
         insurance: parseFloat(item.services?.insurance) || 0,
+        vi: parseFloat(item.services?.vi) || 0,
         maintenance: parseFloat(item.services?.maintenance) || 0,
         vieon: item.services?.vieon || 0,
         sim: item.services?.sim || 0,
         camera: item.accessories?.camera || 0,
         sdp: item.accessories?.sdp || 0,
-        taiNghe: item.accessories?.taiNghe || 0,
+        loa: item.accessories?.loa || item.accessories?.taiNghe || 0,
         den: item.accessories?.den || 0,
-        dongHo: item.accessories?.dongHo || 0,
+        dongHo: item.services?.dongHo || item.accessories?.dongHo || 0,
       }));
-      setSheetRows(mapped);
+
+      // Map dynamic custom fields for dashboard
+      const mappedWithCustom = mapped.map((row: any, idx: number) => {
+        const item = localReports[idx];
+        const updatedRow = { ...row };
+        customFields.forEach(cf => {
+          const val = item[cf.group]?.[cf.id];
+          updatedRow[cf.id] = cf.type === 'count' ? (Number(val) || 0) : (parseFloat(val) || 0);
+        });
+        return updatedRow;
+      });
+
+      setSheetRows(mappedWithCustom);
     } catch (err) {
       console.error('Error loading dashboard data:', err);
     } finally {
       setIsLoadingDashboard(false);
     }
-  }, []);
+  }, [customFields]);
 
   const handleResetForm = () => {
     setState(prev => ({
@@ -265,8 +339,6 @@ export default function App() {
           }
         }
 
-
-
         const rawReports = await DBService.getAllReports();
         if (rawReports) {
           setHistory(rawReports);
@@ -275,6 +347,11 @@ export default function App() {
         const rawLogs = await DBService.getSyncLogs();
         if (rawLogs) {
           setSyncLogs(rawLogs);
+        }
+
+        const fields = await DBService.loadCustomFields();
+        if (fields) {
+          setCustomFields(fields);
         }
       } catch (err) {
         console.error('Error loading initialization data from IndexedDB:', err);
@@ -414,6 +491,10 @@ export default function App() {
     if (data.products.mayLanh > 0) prods.push(`ML: ${data.products.mayLanh}`);
     if (data.products.smpTab > 0) prods.push(`SMP: ${data.products.smpTab}`);
     if (data.products.laptop > 0) prods.push(`LT: ${data.products.laptop}`);
+    customFields.filter(f => f.group === 'products').forEach(f => {
+      const val = data.products[f.id];
+      if (val > 0) prods.push(`${f.name}: ${val}`);
+    });
     if (data.products.otherName.trim() && data.products.otherCount > 0) {
       prods.push(`${data.products.otherName}: ${data.products.otherCount}`);
     }
@@ -428,6 +509,14 @@ export default function App() {
     if (data.services.dongHo > 0) svcs.push(`ĐH: ${data.services.dongHo}`);
     const insNum = parseFloat(data.services.insurance) || 0;
     if (insNum > 0) svcs.push(`BH: ${data.services.insurance}`);
+    customFields.filter(f => f.group === 'services').forEach(f => {
+      const val = data.services[f.id];
+      if (f.type === 'count' && val > 0) {
+        svcs.push(`${f.name}: ${val}`);
+      } else if (f.type === 'revenue' && parseFloat(val) > 0) {
+        svcs.push(`${f.name}: ${val}`);
+      }
+    });
     if (svcs.length > 0) r += `🛠 D.Vụ: ${svcs.join(' | ')}\n`;
 
     // Phụ kiện - 1 dòng
@@ -436,6 +525,10 @@ export default function App() {
     if (data.accessories.sdp > 0) accs.push(`SDP: ${data.accessories.sdp}`);
     if (data.accessories.den > 0) accs.push(`Đèn: ${data.accessories.den}`);
     if (data.accessories.loa > 0) accs.push(`Loa: ${data.accessories.loa}`);
+    customFields.filter(f => f.group === 'accessories').forEach(f => {
+      const val = data.accessories[f.id];
+      if (val > 0) accs.push(`${f.name}: ${val}`);
+    });
     if (data.accessories.otherName?.trim() && data.accessories.otherCount > 0) {
       accs.push(`${data.accessories.otherName}: ${data.accessories.otherCount}`);
     }
@@ -449,6 +542,10 @@ export default function App() {
     if (data.household.noiCom > 0) houses.push(`N.Cơm: ${data.household.noiCom}`);
     if (data.household.noiChien > 0) houses.push(`N.Chiên: ${data.household.noiChien}`);
     if (data.household.locKk > 0) houses.push(`LKK: ${data.household.locKk}`);
+    customFields.filter(f => f.group === 'household').forEach(f => {
+      const val = data.household[f.id];
+      if (val > 0) houses.push(`${f.name}: ${val}`);
+    });
     if (data.household.otherName.trim() && data.household.otherCount > 0) {
       houses.push(`${data.household.otherName}: ${data.household.otherCount}`);
     }
@@ -543,32 +640,44 @@ export default function App() {
     if (sheetRows && sheetRows.length > 0) {
       return sheetRows;
     } else {
-      return history.map(item => ({
-        date: item.date || '',
-        staffName: item.staffName || 'Bạn (Local)',
-        cash: parseFloat(item.cash) || 0,
-        installment: parseFloat(item.installment) || 0,
-        tivi: item.products?.tivi || 0,
-        tuLanh: item.products?.tuLanh || 0,
-        mayGiat: item.products?.mayGiat || 0,
-        mayLanh: item.products?.mayLanh || 0,
-        smpTab: item.products?.smpTab || 0,
-        laptop: item.products?.laptop || 0,
-        mln: item.household?.mln || 0,
-        qdh: item.household?.qdh || 0,
-        quat: item.household?.quat || 0,
-        noiCom: item.household?.noiCom || 0,
-        locKk: item.household?.locKk || 0,
-        insurance: parseFloat(item.services?.insurance) || 0,
-        maintenance: parseFloat(item.services?.maintenance) || 0,
-        vieon: item.services?.vieon || 0,
-        sim: item.services?.sim || 0,
-        camera: item.accessories?.camera || 0,
-        sdp: item.accessories?.sdp || 0,
-        taiNghe: item.accessories?.taiNghe || 0,
-        den: item.accessories?.den || 0,
-        dongHo: item.accessories?.dongHo || 0,
-      }));
+      return history.map(item => {
+        const row: any = {
+          date: item.date || '',
+          staffName: item.staffName || 'Bạn (Local)',
+          cash: parseFloat(item.cash) || 0,
+          installment: parseFloat(item.installment) || 0,
+          moVi: item.moVi || false,
+          tivi: item.products?.tivi || 0,
+          tuLanh: item.products?.tuLanh || 0,
+          mayGiat: item.products?.mayGiat || 0,
+          mayLanh: item.products?.mayLanh || 0,
+          smpTab: item.products?.smpTab || 0,
+          laptop: item.products?.laptop || 0,
+          mln: item.household?.mln || 0,
+          qdh: item.household?.qdh || 0,
+          quat: item.household?.quat || 0,
+          noiCom: item.household?.noiCom || 0,
+          locKk: item.household?.locKk || 0,
+          insurance: parseFloat(item.services?.insurance) || 0,
+          vi: parseFloat(item.services?.vi) || 0,
+          maintenance: parseFloat(item.services?.maintenance) || 0,
+          vieon: item.services?.vieon || 0,
+          sim: item.services?.sim || 0,
+          camera: item.accessories?.camera || 0,
+          sdp: item.accessories?.sdp || 0,
+          loa: item.accessories?.loa || item.accessories?.taiNghe || 0,
+          den: item.accessories?.den || 0,
+          dongHo: item.services?.dongHo || item.accessories?.dongHo || 0,
+        };
+
+        // Map dynamic custom fields
+        customFields.forEach(cf => {
+          const val = item[cf.group]?.[cf.id];
+          row[cf.id] = cf.type === 'count' ? (Number(val) || 0) : (parseFloat(val) || 0);
+        });
+
+        return row;
+      });
     }
   };
 
@@ -734,31 +843,48 @@ export default function App() {
 
                   {/* Mở Ví - right column, under Trả chậm */}
                   <div className="border-l border-neutral-100 dark:border-neutral-800 pl-4">
-                    {(parseFloat(state.installment) > 0) && (
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleStateChange(prev => ({ ...prev, moVi: !prev.moVi }))}
-                          className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
-                            state.moVi 
-                              ? 'bg-[#007AFF] border-[#007AFF]' 
-                              : 'border-neutral-300 dark:border-neutral-600'
-                          }`}
-                        >
-                          {state.moVi && <Check size={12} className="text-white stroke-[3px]" />}
-                        </button>
-                        <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-300">Mở Ví</span>
-                        <Wallet size={14} className="text-[#007AFF]" />
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleStateChange(prev => {
+                          const nextMoVi = !prev.moVi;
+                          return {
+                            ...prev,
+                            moVi: nextMoVi,
+                            services: {
+                              ...prev.services,
+                              vi: nextMoVi ? (prev.services.vi || '0.3') : ''
+                            }
+                          };
+                        })}
+                        className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
+                          state.moVi 
+                            ? 'bg-[#007AFF] border-[#007AFF]' 
+                            : 'border-neutral-300 dark:border-neutral-600'
+                        }`}
+                      >
+                        {state.moVi && <Check size={12} className="text-white stroke-[3px]" />}
+                      </button>
+                      <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-300">Mở Ví</span>
+                      <Wallet size={14} className="text-[#007AFF]" />
+                    </div>
                   </div>
                 </div>
               </div>
 
               {/* Sản phẩm chính iOS Box */}
               <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200/50 dark:border-neutral-800 overflow-hidden shadow-sm">
-                <div className="px-3 py-2 bg-neutral-50/50 dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 flex items-center gap-1.5">
-                  <Package size={15} className="text-[#007AFF]" />
-                  <span className="text-xs font-bold text-neutral-500 uppercase tracking-wide">Sản phẩm chính</span>
+                <div className="px-3 py-2 bg-neutral-50/50 dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Package size={15} className="text-[#007AFF]" />
+                    <span className="text-xs font-bold text-neutral-500 uppercase tracking-wide">Sản phẩm chính</span>
+                  </div>
+                  <button 
+                    onClick={() => setCustomFieldTargetGroup('products')}
+                    className="p-1 text-[#007AFF] hover:bg-[#007AFF]/10 rounded-lg transition-colors cursor-pointer"
+                    title="Thêm mục mới"
+                  >
+                    <Plus size={14} className="stroke-[3px]" />
+                  </button>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-px bg-neutral-100 dark:bg-neutral-800">
@@ -768,6 +894,50 @@ export default function App() {
                   <IOSFormStepItem icon={<AirVent size={16} />} label="Máy lạnh" value={state.products.mayLanh} onMinus={() => handleStep('products', 'mayLanh', -1)} onPlus={() => handleStep('products', 'mayLanh', 1)} />
                   <IOSFormStepItem icon={<Smartphone size={16} />} label="SMP/TAB" value={state.products.smpTab} onMinus={() => handleStep('products', 'smpTab', -1)} onPlus={() => handleStep('products', 'smpTab', 1)} />
                   <IOSFormStepItem icon={<Laptop size={16} />} label="Laptop" value={state.products.laptop} onMinus={() => handleStep('products', 'laptop', -1)} onPlus={() => handleStep('products', 'laptop', 1)} />
+
+                  {/* Custom Products */}
+                  {customFields.filter(cf => cf.group === 'products').map((cf) => (
+                    cf.type === 'count' ? (
+                      <IOSFormStepItem 
+                        key={cf.id} 
+                        icon={<Package size={16} />} 
+                        label={cf.name} 
+                        value={state.products[cf.id] ?? 0} 
+                        onMinus={() => handleStep('products', cf.id, -1)} 
+                        onPlus={() => handleStep('products', cf.id, 1)} 
+                        onDelete={() => handleDeleteCustomField(cf)}
+                      />
+                    ) : (
+                      <div key={cf.id} className="bg-white dark:bg-neutral-900 px-3 py-2 space-y-1 relative group">
+                        <div className="flex items-center justify-between gap-1">
+                          <div className="flex items-center gap-1">
+                            <Package size={13} className="text-neutral-400" />
+                            <label className="text-[10px] font-bold text-neutral-400 uppercase">{cf.name}</label>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteCustomField(cf)}
+                            className="p-1 text-[#FF3B30] hover:bg-[#FF3B30]/10 rounded-lg transition-colors cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            title="Xoá mục này"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        <input 
+                          type="number" 
+                          inputMode="decimal"
+                          min="0"
+                          placeholder="Nhập số..." 
+                          className="w-full text-xs bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl px-3 py-2 focus:outline-none focus:border-[#007AFF]"
+                          value={state.products[cf.id] ?? ''}
+                          onChange={e => handleStateChange(prev => ({
+                            ...prev,
+                            products: { ...prev.products, [cf.id]: e.target.value }
+                          }))}
+                          onKeyDown={blockNonNumericKeys}
+                        />
+                      </div>
+                    )
+                  ))}
                   
                   {/* Other Products Section */}
                   <div className="col-span-2 px-3 py-2 flex items-center justify-between gap-3 bg-neutral-50/30">
@@ -789,9 +959,18 @@ export default function App() {
 
               {/* Dịch vụ bổ sung */}
               <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200/50 dark:border-neutral-800 overflow-hidden shadow-sm bg-[#34C759]/5">
-                <div className="px-3 py-2 bg-neutral-50/50 dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 flex items-center gap-1.5">
-                  <ShieldCheck size={15} className="text-[#34C759]" />
-                  <span className="text-xs font-bold text-[#248A3D] dark:text-neutral-400 uppercase tracking-wide">Dịch vụ bổ sung</span>
+                <div className="px-3 py-2 bg-neutral-50/50 dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck size={15} className="text-[#34C759]" />
+                    <span className="text-xs font-bold text-[#248A3D] dark:text-neutral-400 uppercase tracking-wide">Dịch vụ bổ sung</span>
+                  </div>
+                  <button 
+                    onClick={() => setCustomFieldTargetGroup('services')}
+                    className="p-1 text-[#34C759] hover:bg-[#34C759]/10 rounded-lg transition-colors cursor-pointer"
+                    title="Thêm mục mới"
+                  >
+                    <Plus size={14} className="stroke-[3px]" />
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-px bg-neutral-100 dark:bg-neutral-800">
@@ -807,13 +986,64 @@ export default function App() {
                       placeholder="VD: 300k (0.3)..." 
                       className="w-full text-xs bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl px-3 py-2 focus:outline-none focus:border-[#34C759]"
                       value={state.services.vi}
-                      onChange={e => handleStateChange(prev => ({ ...prev, services: { ...prev.services, vi: e.target.value } }))}
+                      onChange={e => {
+                        const val = e.target.value;
+                        handleStateChange(prev => ({
+                          ...prev,
+                          moVi: parseFloat(val) > 0,
+                          services: { ...prev.services, vi: val }
+                        }));
+                      }}
                       onKeyDown={blockNonNumericKeys}
                     />
                   </div>
                   <IOSFormStepItem icon={<Tv2 size={16} />} label="Vieon" value={state.services.vieon} onMinus={() => handleStep('services', 'vieon', -1)} onPlus={() => handleStep('services', 'vieon', 1)} />
                   <IOSFormStepItem icon={<Cpu size={16} />} label="SIM" value={state.services.sim} onMinus={() => handleStep('services', 'sim', -1)} onPlus={() => handleStep('services', 'sim', 1)} />
                   <IOSFormStepItem icon={<Watch size={16} />} label="Đồng hồ" value={state.services.dongHo} onMinus={() => handleStep('services', 'dongHo', -1)} onPlus={() => handleStep('services', 'dongHo', 1)} />
+
+                  {/* Custom Services */}
+                  {customFields.filter(cf => cf.group === 'services').map((cf) => (
+                    cf.type === 'count' ? (
+                      <IOSFormStepItem 
+                        key={cf.id} 
+                        icon={<ShieldCheck size={16} />} 
+                        label={cf.name} 
+                        value={state.services[cf.id] ?? 0} 
+                        onMinus={() => handleStep('services', cf.id, -1)} 
+                        onPlus={() => handleStep('services', cf.id, 1)} 
+                        onDelete={() => handleDeleteCustomField(cf)}
+                      />
+                    ) : (
+                      <div key={cf.id} className="bg-white dark:bg-neutral-900 px-3 py-2 space-y-1 relative group">
+                        <div className="flex items-center justify-between gap-1">
+                          <div className="flex items-center gap-1">
+                            <ShieldCheck size={13} className="text-neutral-400" />
+                            <label className="text-[10px] font-bold text-neutral-400 uppercase">{cf.name}</label>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteCustomField(cf)}
+                            className="p-1 text-[#FF3B30] hover:bg-[#FF3B30]/10 rounded-lg transition-colors cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            title="Xoá mục này"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        <input 
+                          type="number" 
+                          inputMode="decimal"
+                          min="0"
+                          placeholder="Nhập số..." 
+                          className="w-full text-xs bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl px-3 py-2 focus:outline-none focus:border-[#34C759]"
+                          value={state.services[cf.id] ?? ''}
+                          onChange={e => handleStateChange(prev => ({
+                            ...prev,
+                            services: { ...prev.services, [cf.id]: e.target.value }
+                          }))}
+                          onKeyDown={blockNonNumericKeys}
+                        />
+                      </div>
+                    )
+                  ))}
                 </div>
 
                 <div className="px-3 py-2 border-t border-neutral-100 dark:border-neutral-800">
@@ -835,15 +1065,68 @@ export default function App() {
 
               {/* Phụ kiện */}
               <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200/50 dark:border-neutral-800 overflow-hidden shadow-sm bg-[#AF52DE]/5">
-                <div className="px-3 py-2 bg-neutral-50/50 dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 flex items-center gap-1.5">
-                  <Headphones size={15} className="text-[#AF52DE]" />
-                  <span className="text-xs font-bold text-neutral-500 uppercase tracking-wide">Phụ kiện</span>
+                <div className="px-3 py-2 bg-neutral-50/50 dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Headphones size={15} className="text-[#AF52DE]" />
+                    <span className="text-xs font-bold text-neutral-500 uppercase tracking-wide">Phụ kiện</span>
+                  </div>
+                  <button 
+                    onClick={() => setCustomFieldTargetGroup('accessories')}
+                    className="p-1 text-[#AF52DE] hover:bg-[#AF52DE]/10 rounded-lg transition-colors cursor-pointer"
+                    title="Thêm mục mới"
+                  >
+                    <Plus size={14} className="stroke-[3px]" />
+                  </button>
                 </div>
                 <div className="grid grid-cols-2 gap-px bg-neutral-100 dark:bg-neutral-800">
                   <IOSFormStepItem icon={<Camera size={16} />} label="Cam" value={state.accessories.camera} onMinus={() => handleStep('accessories', 'camera', -1)} onPlus={() => handleStep('accessories', 'camera', 1)} />
                   <IOSFormStepItem icon={<BatteryCharging size={16} />} label="SDP" value={state.accessories.sdp} onMinus={() => handleStep('accessories', 'sdp', -1)} onPlus={() => handleStep('accessories', 'sdp', 1)} />
                   <IOSFormStepItem icon={<Lamp size={16} />} label="Đèn" value={state.accessories.den} onMinus={() => handleStep('accessories', 'den', -1)} onPlus={() => handleStep('accessories', 'den', 1)} />
                   <IOSFormStepItem icon={<Volume2 size={16} />} label="Loa" value={state.accessories.loa} onMinus={() => handleStep('accessories', 'loa', -1)} onPlus={() => handleStep('accessories', 'loa', 1)} />
+
+                  {/* Custom Accessories */}
+                  {customFields.filter(cf => cf.group === 'accessories').map((cf) => (
+                    cf.type === 'count' ? (
+                      <IOSFormStepItem 
+                        key={cf.id} 
+                        icon={<Headphones size={16} />} 
+                        label={cf.name} 
+                        value={state.accessories[cf.id] ?? 0} 
+                        onMinus={() => handleStep('accessories', cf.id, -1)} 
+                        onPlus={() => handleStep('accessories', cf.id, 1)} 
+                        onDelete={() => handleDeleteCustomField(cf)}
+                      />
+                    ) : (
+                      <div key={cf.id} className="bg-white dark:bg-neutral-900 px-3 py-2 space-y-1 relative group">
+                        <div className="flex items-center justify-between gap-1">
+                          <div className="flex items-center gap-1">
+                            <Headphones size={13} className="text-neutral-400" />
+                            <label className="text-[10px] font-bold text-neutral-400 uppercase">{cf.name}</label>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteCustomField(cf)}
+                            className="p-1 text-[#FF3B30] hover:bg-[#FF3B30]/10 rounded-lg transition-colors cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            title="Xoá mục này"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        <input 
+                          type="number" 
+                          inputMode="decimal"
+                          min="0"
+                          placeholder="Nhập số..." 
+                          className="w-full text-xs bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl px-3 py-2 focus:outline-none focus:border-[#AF52DE]"
+                          value={state.accessories[cf.id] ?? ''}
+                          onChange={e => handleStateChange(prev => ({
+                            ...prev,
+                            accessories: { ...prev.accessories, [cf.id]: e.target.value }
+                          }))}
+                          onKeyDown={blockNonNumericKeys}
+                        />
+                      </div>
+                    )
+                  ))}
                   
                   {/* Phụ kiện khác */}
                   <div className="col-span-2 px-3 py-2 flex items-center justify-between gap-3 bg-neutral-50/30">
@@ -865,9 +1148,18 @@ export default function App() {
 
               {/* Điện gia dụng Section */}
               <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200/50 dark:border-neutral-800 overflow-hidden shadow-sm bg-[#FF9500]/5">
-                <div className="px-3 py-2 bg-neutral-50/50 dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 flex items-center gap-1.5">
-                  <Fan size={15} className="text-[#FF9500]" />
-                  <span className="text-xs font-bold text-neutral-500 uppercase tracking-wide">Điện gia dụng</span>
+                <div className="px-3 py-2 bg-neutral-50/50 dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Fan size={15} className="text-[#FF9500]" />
+                    <span className="text-xs font-bold text-neutral-500 uppercase tracking-wide">Điện gia dụng</span>
+                  </div>
+                  <button 
+                    onClick={() => setCustomFieldTargetGroup('household')}
+                    className="p-1 text-[#FF9500] hover:bg-[#FF9500]/10 rounded-lg transition-colors cursor-pointer"
+                    title="Thêm mục mới"
+                  >
+                    <Plus size={14} className="stroke-[3px]" />
+                  </button>
                 </div>
                 <div className="grid grid-cols-2 gap-px bg-neutral-100 dark:bg-neutral-800">
                   <IOSFormStepItem icon={<Droplets size={16} />} label="Máy lọc nước" value={state.household.mln} onMinus={() => handleStep('household', 'mln', -1)} onPlus={() => handleStep('household', 'mln', 1)} />
@@ -876,6 +1168,50 @@ export default function App() {
                   <IOSFormStepItem icon={<Soup size={16} />} label="Nồi cơm" value={state.household.noiCom} onMinus={() => handleStep('household', 'noiCom', -1)} onPlus={() => handleStep('household', 'noiCom', 1)} />
                   <IOSFormStepItem icon={<CookingPot size={16} />} label="Nồi chiên" value={state.household.noiChien} onMinus={() => handleStep('household', 'noiChien', -1)} onPlus={() => handleStep('household', 'noiChien', 1)} />
                   <IOSFormStepItem icon={<Sparkles size={16} />} label="Máy lọc KK" value={state.household.locKk} onMinus={() => handleStep('household', 'locKk', -1)} onPlus={() => handleStep('household', 'locKk', 1)} />
+
+                  {/* Custom Household */}
+                  {customFields.filter(cf => cf.group === 'household').map((cf) => (
+                    cf.type === 'count' ? (
+                      <IOSFormStepItem 
+                        key={cf.id} 
+                        icon={<Fan size={16} />} 
+                        label={cf.name} 
+                        value={state.household[cf.id] ?? 0} 
+                        onMinus={() => handleStep('household', cf.id, -1)} 
+                        onPlus={() => handleStep('household', cf.id, 1)} 
+                        onDelete={() => handleDeleteCustomField(cf)}
+                      />
+                    ) : (
+                      <div key={cf.id} className="bg-white dark:bg-neutral-900 px-3 py-2 space-y-1 relative group">
+                        <div className="flex items-center justify-between gap-1">
+                          <div className="flex items-center gap-1">
+                            <Fan size={13} className="text-neutral-400" />
+                            <label className="text-[10px] font-bold text-neutral-400 uppercase">{cf.name}</label>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteCustomField(cf)}
+                            className="p-1 text-[#FF3B30] hover:bg-[#FF3B30]/10 rounded-lg transition-colors cursor-pointer opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            title="Xoá mục này"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        <input 
+                          type="number" 
+                          inputMode="decimal"
+                          min="0"
+                          placeholder="Nhập số..." 
+                          className="w-full text-xs bg-neutral-50 dark:bg-neutral-800 border border-neutral-200/70 dark:border-neutral-700 rounded-xl px-3 py-2 focus:outline-none focus:border-[#FF9500]"
+                          value={state.household[cf.id] ?? ''}
+                          onChange={e => handleStateChange(prev => ({
+                            ...prev,
+                            household: { ...prev.household, [cf.id]: e.target.value }
+                          }))}
+                          onKeyDown={blockNonNumericKeys}
+                        />
+                      </div>
+                    )
+                  ))}
                   
                   {/* Gia dụng khác */}
                   <div className="col-span-2 px-3 py-2 flex items-center justify-between gap-3 bg-neutral-50/30">
@@ -1057,6 +1393,12 @@ export default function App() {
                       .map((item, idx) => {
                         const isExpanded = expandedHistoryId === item.id;
                         
+                         // Sum custom fields in products
+                         let customProductsCount = 0;
+                         customFields.filter(cf => cf.group === 'products' && cf.type === 'count').forEach(cf => {
+                           customProductsCount += Number(item.products?.[cf.id]) || 0;
+                         });
+
                         const totalProductsCount = 
                           (item.products?.tivi || 0) +
                           (item.products?.tuLanh || 0) +
@@ -1064,7 +1406,14 @@ export default function App() {
                           (item.products?.mayLanh || 0) +
                           (item.products?.smpTab || 0) +
                           (item.products?.laptop || 0) +
-                          (item.products?.otherCount || 0);
+                          (item.products?.otherCount || 0) +
+                          customProductsCount;
+
+                         // Sum custom fields in household
+                         let customHouseholdCount = 0;
+                         customFields.filter(cf => cf.group === 'household' && cf.type === 'count').forEach(cf => {
+                           customHouseholdCount += Number(item.household?.[cf.id]) || 0;
+                         });
 
                         const totalHouseholdCount = 
                           (item.household?.mln || 0) +
@@ -1073,14 +1422,22 @@ export default function App() {
                           (item.household?.noiCom || 0) +
                           (item.household?.noiChien || 0) +
                           (item.household?.locKk || 0) +
-                          (item.household?.otherCount || 0);
+                          (item.household?.otherCount || 0) +
+                          customHouseholdCount;
  
+                         // Sum custom fields in accessories
+                         let customAccessoriesCount = 0;
+                         customFields.filter(cf => cf.group === 'accessories' && cf.type === 'count').forEach(cf => {
+                           customAccessoriesCount += Number(item.accessories?.[cf.id]) || 0;
+                         });
+
                          const totalAccessoriesCount = 
                            (item.accessories?.camera || 0) +
                            (item.accessories?.sdp || 0) +
-                           (item.accessories?.taiNghe || 0) +
+                           (item.accessories?.loa || item.accessories?.taiNghe || 0) +
                            (item.accessories?.den || 0) +
-                           (item.accessories?.dongHo || 0);
+                           (item.accessories?.dongHo || 0) +
+                           customAccessoriesCount;
  
                          const totalRevenue = (Number(item.cash) || 0) + (Number(item.installment) || 0);
 
@@ -1147,7 +1504,7 @@ export default function App() {
                                  {totalProductsCount > 0 && (
                                    <div className="bg-orange-500/5 text-orange-600 dark:text-orange-400 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
                                      <span>📦</span>
-                                     <span>{totalProductsCount} máy</span>
+                                     <span>{totalProductsCount} sp</span>
                                    </div>
                                  )}
                                  {/* Household items */}
@@ -1230,7 +1587,7 @@ export default function App() {
                                     <button 
                                       onClick={async () => {
                                         if (confirm(`Bạn muốn xóa ngày lịch sử báo cáo ${item.date}?`)) {
-                                          await DBService.deleteReport(item.date);
+                                          await DBService.deleteReport(item.id);
                                           const raw = await DBService.getAllReports();
                                           setHistory(raw);
                                           toast.success('Đã xóa dữ liệu lịch sử ngày thành công!');
@@ -1470,13 +1827,15 @@ export default function App() {
                 
                 // Best accessories total count
                 const totalInsuranceSum = filtered.reduce((s, r) => s + r.insurance, 0);
+                const totalViSum = filtered.reduce((s, r) => s + (r.vi || 0), 0);
+                const totalMoViCount = filtered.reduce((s, r) => s + (r.moVi ? 1 : 0), 0);
                 const totalMaintenanceSum = filtered.reduce((s, r) => s + r.maintenance, 0);
                 const totalVieonSum = filtered.reduce((s, r) => s + r.vieon, 0);
                 const totalSimSum = filtered.reduce((s, r) => s + r.sim, 0);
                 
                 const totalCameraSum = filtered.reduce((s, r) => s + r.camera, 0);
                 const totalSdpSum = filtered.reduce((s, r) => s + r.sdp, 0);
-                const totalTaiNgheSum = filtered.reduce((s, r) => s + r.taiNghe, 0);
+                const totalLoaSum = filtered.reduce((s, r) => s + (r.loa || 0), 0);
                 const totalDenSum = filtered.reduce((s, r) => s + r.den, 0);
                 const totalDongHoSum = filtered.reduce((s, r) => s + r.dongHo, 0);
 
@@ -1576,26 +1935,19 @@ export default function App() {
                         <span className="text-xs font-extrabold uppercase text-neutral-500 tracking-wide">Sản phẩm chính bán chạy</span>
                       </div>
 
-                      <div className="space-y-3">
-                        {productRatings.map((p, idx) => {
-                          const barWidth = (p.count / maxProductCount) * 100;
-                          return (
-                            <div key={idx} className="space-y-1">
-                              <div className="flex items-center justify-between text-xs font-semibold">
-                                <span className="text-neutral-600 dark:text-neutral-300">{p.name}</span>
-                                <span className="text-neutral-900 dark:text-neutral-100 font-extrabold bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded-full text-[10px]">
-                                  {p.count} cái
-                                </span>
-                              </div>
-                              <div className="w-full h-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
-                                <div 
-                                  className={`h-full rounded-full ${p.colorClass}`}
-                                  style={{ width: p.count > 0 ? `${barWidth}%` : '0%' }}
-                                />
-                              </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {productRatings.map((p, idx) => (
+                          <div key={idx} className="bg-neutral-50 dark:bg-neutral-850 p-2 rounded-xl border border-neutral-200/10 flex flex-col justify-between h-14">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`w-1.5 h-1.5 rounded-full ${p.colorClass} shrink-0`} />
+                              <span className="text-[9.5px] font-bold text-neutral-500 dark:text-neutral-400 truncate" title={p.name}>{p.name}</span>
                             </div>
-                          );
-                        })}
+                            <div className="flex items-baseline justify-between mt-1">
+                              <span className="text-sm font-black text-neutral-900 dark:text-white">{p.count}</span>
+                              <span className="text-[8.5px] font-semibold text-neutral-400">cái</span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
 
@@ -1606,26 +1958,19 @@ export default function App() {
                         <span className="text-xs font-extrabold uppercase text-neutral-500 tracking-wide">Gia dụng bán chạy</span>
                       </div>
 
-                      <div className="space-y-3">
-                        {householdRatings.map((h, idx) => {
-                          const barWidth = (h.count / maxHouseCount) * 100;
-                          return (
-                            <div key={idx} className="space-y-1">
-                              <div className="flex items-center justify-between text-xs font-semibold">
-                                <span className="text-neutral-600 dark:text-neutral-300">{h.name}</span>
-                                <span className="text-neutral-900 dark:text-neutral-100 font-extrabold bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded-full text-[10px]">
-                                  {h.count} cái
-                                </span>
-                              </div>
-                              <div className="w-full h-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
-                                <div 
-                                  className={`h-full rounded-full ${h.colorClass}`}
-                                  style={{ width: h.count > 0 ? `${barWidth}%` : '0%' }}
-                                />
-                              </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {householdRatings.map((h, idx) => (
+                          <div key={idx} className="bg-neutral-50 dark:bg-neutral-850 p-2 rounded-xl border border-neutral-200/10 flex flex-col justify-between h-14">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`w-1.5 h-1.5 rounded-full ${h.colorClass} shrink-0`} />
+                              <span className="text-[9.5px] font-bold text-neutral-500 dark:text-neutral-400 truncate" title={h.name}>{h.name}</span>
                             </div>
-                          );
-                        })}
+                            <div className="flex items-baseline justify-between mt-1">
+                              <span className="text-sm font-black text-neutral-900 dark:text-white">{h.count}</span>
+                              <span className="text-[8.5px] font-semibold text-neutral-400">cái</span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
 
@@ -1642,6 +1987,10 @@ export default function App() {
                           <table className="w-full text-[10.5px]">
                             <tbody>
                               <tr>
+                                <td className="text-neutral-400 py-1">Ví:</td>
+                                <td className="font-extrabold text-right">{totalViSum.toFixed(1)} Tr ({totalMoViCount} cái)</td>
+                              </tr>
+                              <tr>
                                 <td className="text-neutral-400 py-1">Vieon:</td>
                                 <td className="font-extrabold text-right">{totalVieonSum} tk</td>
                               </tr>
@@ -1651,12 +2000,23 @@ export default function App() {
                               </tr>
                               <tr>
                                 <td className="text-neutral-400 py-1">BHMR:</td>
-                                <td className="font-extrabold text-right">{totalInsuranceSum} cái</td>
+                                <td className="font-extrabold text-right">{totalInsuranceSum.toFixed(1)} Tr</td>
                               </tr>
                               <tr>
                                 <td className="text-neutral-400 py-1">Bảo dưỡng:</td>
                                 <td className="font-extrabold text-right">{totalMaintenanceSum} cái</td>
                               </tr>
+                              {customFields.filter(cf => cf.group === 'services').map((cf, cIdx) => {
+                                const sum = filtered.reduce((s, r) => s + (r[cf.id] || 0), 0);
+                                return (
+                                  <tr key={`custom-svc-${cIdx}`}>
+                                    <td className="text-neutral-400 py-1 truncate max-w-[70px]" title={cf.name}>{cf.name}:</td>
+                                    <td className="font-extrabold text-right">
+                                      {cf.type === 'count' ? `${sum} cái` : `${sum.toFixed(1)} Tr`}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
@@ -1674,8 +2034,8 @@ export default function App() {
                                 <td className="font-extrabold text-right">{totalSdpSum} c</td>
                               </tr>
                               <tr>
-                                <td className="text-neutral-400 py-1">Tai nghe:</td>
-                                <td className="font-extrabold text-right">{totalTaiNgheSum} c</td>
+                                <td className="text-neutral-400 py-1">Loa:</td>
+                                <td className="font-extrabold text-right">{totalLoaSum} c</td>
                               </tr>
                               <tr>
                                 <td className="text-neutral-400 py-1">Đèn bàn:</td>
@@ -1685,6 +2045,17 @@ export default function App() {
                                 <td className="text-neutral-400 py-1">Đồng hồ:</td>
                                 <td className="font-extrabold text-right">{totalDongHoSum} c</td>
                               </tr>
+                              {customFields.filter(cf => cf.group === 'accessories').map((cf, cIdx) => {
+                                const sum = filtered.reduce((s, r) => s + (r[cf.id] || 0), 0);
+                                return (
+                                  <tr key={`custom-acc-${cIdx}`}>
+                                    <td className="text-neutral-400 py-1 truncate max-w-[70px]" title={cf.name}>{cf.name}:</td>
+                                    <td className="font-extrabold text-right">
+                                      {cf.type === 'count' ? `${sum} c` : `${sum.toFixed(1)} Tr`}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
@@ -1708,6 +2079,89 @@ export default function App() {
         <IOSInterfaceTabButton label="Nhật Ký" active={activeTab === 'history'} icon={<History size={20} />} onClick={() => setActiveTab('history')} />
         <IOSInterfaceTabButton label="Cài đặt" active={activeTab === 'sync'} icon={<Settings size={20} />} onClick={() => setActiveTab('sync')} />
       </footer>
+
+      {/* Custom Field creation Modal */}
+      <AnimatePresence>
+        {customFieldTargetGroup && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-55"
+          >
+            <motion.div 
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.95 }}
+              className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-3xl p-5 w-full max-w-sm text-left space-y-4 shadow-xl"
+            >
+              <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 pb-2">
+                <h3 className="font-extrabold text-[13px] uppercase tracking-wider text-neutral-800 dark:text-neutral-100">Thêm danh mục mới</h3>
+                <button 
+                  onClick={() => setCustomFieldTargetGroup(null)}
+                  className="p-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg text-neutral-400"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-neutral-400 uppercase">Tên mục / sản phẩm</label>
+                  <input 
+                    type="text" 
+                    placeholder="VD: Tai nghe chụp tai, Mở thẻ, v.v." 
+                    className="w-full text-xs bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl px-3 py-2 focus:outline-none focus:border-[#007AFF] text-neutral-800 dark:text-white font-medium"
+                    value={newFieldName}
+                    onChange={e => setNewFieldName(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-neutral-400 uppercase">Loại hiển thị & Tính toán</label>
+                  <div className="grid grid-cols-2 gap-2 mt-1">
+                    <button
+                      onClick={() => setNewFieldType('count')}
+                      className={`py-2 px-3 border rounded-xl text-[10.5px] font-bold transition-all text-center cursor-pointer ${
+                        newFieldType === 'count' 
+                          ? 'border-[#007AFF] bg-[#007AFF]/10 text-[#007AFF]' 
+                          : 'border-neutral-200 dark:border-neutral-850 text-neutral-450 dark:border-neutral-800'
+                      }`}
+                    >
+                      Đếm số lượng (Cái)
+                    </button>
+                    <button
+                      onClick={() => setNewFieldType('revenue')}
+                      className={`py-2 px-3 border rounded-xl text-[10.5px] font-bold transition-all text-center cursor-pointer ${
+                        newFieldType === 'revenue' 
+                          ? 'border-[#007AFF] bg-[#007AFF]/10 text-[#007AFF]' 
+                          : 'border-neutral-200 dark:border-neutral-850 text-neutral-455 dark:border-neutral-800'
+                      }`}
+                    >
+                      Doanh thu / Tiền (Tr)
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mt-2 pt-2">
+                <button 
+                  onClick={() => setCustomFieldTargetGroup(null)}
+                  className="py-2.5 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 font-bold text-xs rounded-xl text-neutral-600 dark:text-neutral-300 text-center"
+                >
+                  Bỏ qua
+                </button>
+                <button 
+                  onClick={handleAddCustomField}
+                  className="py-2.5 bg-[#007AFF] hover:bg-[#007AFF]/90 font-bold text-xs rounded-xl text-white text-center shadow-xs"
+                >
+                  Lưu
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Database Clear confirmation Modal dialog */}
       <AnimatePresence>
@@ -1761,16 +2215,26 @@ interface IOSFormStepItemProps {
   value: number;
   onMinus: () => void;
   onPlus: () => void;
+  onDelete?: () => void;
 }
 
-function IOSFormStepItem({ icon, label, value, onMinus, onPlus }: IOSFormStepItemProps) {
+function IOSFormStepItem({ icon, label, value, onMinus, onPlus, onDelete }: IOSFormStepItemProps) {
   return (
     <div className="px-3 py-2 flex items-center justify-between group bg-white dark:bg-neutral-900 transition-colors">
-      <div className="flex items-center gap-3 overflow-hidden select-none">
-        <div className="text-neutral-400 group-hover:text-[#007AFF] transition-colors">{icon}</div>
+      <div className="flex items-center gap-3 overflow-hidden select-none flex-1">
+        <div className="text-neutral-400 group-hover:text-[#007AFF] transition-colors shrink-0">{icon}</div>
         <span className="text-[12.5px] font-semibold text-[#1C1C1E] dark:text-neutral-100 truncate">{label}</span>
+        {onDelete && (
+          <button 
+            onClick={onDelete}
+            className="p-1 text-[#FF3B30] hover:bg-[#FF3B30]/10 rounded-lg transition-colors cursor-pointer shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100"
+            title="Xoá mục này"
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
       </div>
-      <div className="flex items-center gap-2.5 bg-[#EEEEF0] dark:bg-neutral-850 p-1.5 rounded-full select-none">
+      <div className="flex items-center gap-2.5 bg-[#EEEEF0] dark:bg-neutral-850 p-1.5 rounded-full select-none shrink-0">
         <button 
           onClick={onMinus} 
           className="w-6 h-6 rounded-full bg-white dark:bg-neutral-800 text-[#1C1C1E] dark:text-white flex items-center justify-center hover:bg-neutral-50 active:scale-90 transition-transform shadow-xs"

@@ -194,5 +194,23 @@ export const DBService = {
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
+  },
+
+  async saveCustomFields(fields: any[]): Promise<void> {
+    const { store } = await getStore('saved_totals', 'readwrite');
+    return new Promise((resolve, reject) => {
+      const request = store.put(fields, 'custom_fields');
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  },
+
+  async loadCustomFields(): Promise<any[] | null> {
+    const { store } = await getStore('saved_totals');
+    return new Promise((resolve) => {
+      const request = store.get('custom_fields');
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => resolve(null);
+    });
   }
 };

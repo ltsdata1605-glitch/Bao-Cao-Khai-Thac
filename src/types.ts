@@ -33,6 +33,7 @@ export interface ReportState {
     laptop: number;
     otherName: string;
     otherCount: number;
+    [key: string]: any;
   };
   household: {
     mln: number;
@@ -43,6 +44,7 @@ export interface ReportState {
     locKk: number;
     otherName: string;
     otherCount: number;
+    [key: string]: any;
   };
   services: {
     vi: string;
@@ -50,6 +52,7 @@ export interface ReportState {
     sim: number;
     dongHo: number;
     insurance: string;
+    [key: string]: any;
   };
   accessories: {
     camera: number;
@@ -58,6 +61,7 @@ export interface ReportState {
     loa: number;
     otherName: string;
     otherCount: number;
+    [key: string]: any;
   };
   priceWar: {
     ce: PriceWarStats;
@@ -65,6 +69,13 @@ export interface ReportState {
   };
   leads: LeadInfo[];
   notes: string;
+}
+
+export interface CustomField {
+  id: string;
+  name: string;
+  group: 'products' | 'household' | 'services' | 'accessories';
+  type: 'count' | 'revenue';
 }
 
 export interface SavedTotals {
