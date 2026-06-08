@@ -12,7 +12,7 @@ import toast, { Toaster } from 'react-hot-toast';
 
 import { PriceWarStats, LeadInfo, ReportState, SyncLog } from './types';
 import { DBService } from './lib/db';
-import { initAuth, googleSignIn, logout, auth, saveReportToFirestore, deleteReportFromFirestore, fetchTeamReportsFromFirestore } from './lib/firebase';
+import { saveReportToFirestore, deleteReportFromFirestore, fetchTeamReportsFromFirestore } from './lib/firebase';
 import html2canvas from 'html2canvas-pro';
 
 // Capture and share helper using Web Share API
@@ -183,12 +183,8 @@ export default function App() {
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
   const [dashboardTimeRange, setDashboardTimeRange] = useState<'today' | 'week'>('today');
 
-  // Authentication State
-  const [user, setUser] = useState<any>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [needsAuth, setNeedsAuth] = useState(true);
+  // Synchronization State
   const [isSyncing, setIsSyncing] = useState(false);
-  const [userSpreadsheetId, setUserSpreadsheetIdState] = useState<string | null>(null);
 
   const loadDashboardData = useCallback(async () => {
     setIsLoadingDashboard(true);
@@ -215,10 +211,10 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (activeTab === 'dashboard' && user) {
+    if (activeTab === 'dashboard') {
       loadDashboardData();
     }
-  }, [activeTab, user, loadDashboardData]);
+  }, [activeTab, loadDashboardData]);
 
   // Load Initial Data from IndexedDB on startup
   useEffect(() => {
@@ -262,22 +258,7 @@ export default function App() {
     loadInitialData();
   }, []);
 
-  // Firebase Auth State Observer
-  useEffect(() => {
-    const unsubscribe = initAuth(
-      (firebaseUser, token) => {
-        setUser(firebaseUser);
-        setAccessToken(token);
-        setNeedsAuth(false);
-      },
-      () => {
-        setUser(null);
-        setAccessToken(null);
-        setNeedsAuth(true);
-      }
-    );
-    return () => unsubscribe();
-  }, []);
+
 
   // Compute Warnings (3 consecutive days of 0 results per item)
   useEffect(() => {
@@ -379,42 +360,6 @@ export default function App() {
     }
   };
 
-  // Google Login popup callback trigger
-  const handleGoogleLogin = async () => {
-    try {
-      const result = await googleSignIn();
-      if (result) {
-        setUser(result.user);
-        setAccessToken(result.accessToken);
-        setNeedsAuth(false);
-        toast.success(`Đăng nhập Google thành công: ${result.user.displayName}`);
-        await DBService.addSyncLog('success', `Đã kết nối tài khoản Google: ${result.user.email}`);
-        const logs = await DBService.getSyncLogs();
-        setSyncLogs(logs);
-      }
-    } catch (err: any) {
-      toast.error(`Lỗi đăng nhập: ${err.message}`);
-      await DBService.addSyncLog('error', `Kết nối thất bại: ${err.message}`);
-      const logs = await DBService.getSyncLogs();
-      setSyncLogs(logs);
-    }
-  };
-
-  const handleGoogleLogout = async () => {
-    try {
-      await logout();
-      setUser(null);
-      setAccessToken(null);
-      setNeedsAuth(true);
-      toast.success('Đã đăng xuất Google.');
-      await DBService.addSyncLog('success', 'Đã ngắt kết nối tài khoản Google.');
-      const logs = await DBService.getSyncLogs();
-      setSyncLogs(logs);
-    } catch (err: any) {
-      toast.error(`Lỗi đăng xuất: ${err.message}`);
-    }
-  };
-
   // Synchronizing data directly to Firestore
   const handleGoogleSync = async () => {
     if (!state.staffName.trim()) {
@@ -426,24 +371,6 @@ export default function App() {
       toast.error('Vui lòng nhập đúng định dạng "Số - Tên" (Ví dụ: 21707 - Sơn)!');
       setIsEditingName(true);
       return;
-    }
-
-    let currentUser = user;
-    if (!currentUser) {
-      try {
-        const result = await googleSignIn();
-        if (result) {
-          setUser(result.user);
-          setAccessToken(result.accessToken);
-          setNeedsAuth(false);
-          currentUser = result.user;
-        } else {
-          return;
-        }
-      } catch (err: any) {
-        toast.error(`Đăng nhập Google thất bại! Để gửi báo cáo lên Cloud Firestore, ứng dụng cần kết nối Google.`);
-        return;
-      }
     }
 
     setIsSyncing(true);
@@ -590,25 +517,7 @@ export default function App() {
       return;
     }
 
-    let currentUser = user;
-    if (!currentUser) {
-      toast('Bạn chưa đăng nhập. Đang chuyển tới đăng nhập để đồng bộ báo cáo...', { icon: '🔑' });
-      try {
-        const result = await googleSignIn();
-        if (result) {
-          setUser(result.user);
-          setAccessToken(result.accessToken);
-          setNeedsAuth(false);
-          currentUser = result.user;
-        } else {
-          toast.error('Vui lòng đăng nhập để thực hiện báo cáo.');
-          return;
-        }
-      } catch (err: any) {
-        toast.error(`Lỗi đăng nhập: ${err.message}`);
-        return;
-      }
-    }
+
 
     // Capture current values to avoid referencing the reset state during asynchronous execution
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -688,7 +597,7 @@ export default function App() {
   );
 
   const getUnifiedData = (): any[] => {
-    if (user && sheetRows && sheetRows.length > 0) {
+    if (sheetRows && sheetRows.length > 0) {
       return sheetRows;
     } else {
       return history.map(item => ({
@@ -1271,7 +1180,7 @@ export default function App() {
                                     <button 
                                       onClick={async () => {
                                         if (confirm(`Bạn muốn xóa ngày lịch sử báo cáo ${item.date}?`)) {
-                                          if (item.synced && user) {
+                                          if (item.synced) {
                                             const toastId = toast.loading('Đang xóa dữ liệu trên Cloud Firestore...');
                                             try {
                                               const success = await deleteReportFromFirestore(item.date, item.staffName);
@@ -1283,8 +1192,6 @@ export default function App() {
                                             } catch (error: any) {
                                               toast.error(`Lỗi xóa trên Cloud Firestore: ${error.message}`, { id: toastId });
                                             }
-                                          } else if (item.synced) {
-                                            toast.error('Báo cáo này đã đồng bộ Cloud Firestore nhưng bạn chưa đăng nhập. Chỉ xóa được local.');
                                           }
 
                                           await DBService.deleteReport(item.date);
@@ -1292,9 +1199,7 @@ export default function App() {
                                           setHistory(raw);
                                           toast.success('Đã xóa dữ liệu lịch sử ngày thành công!');
 
-                                          if (user) {
-                                            loadDashboardData();
-                                          }
+                                          loadDashboardData();
                                         }
                                       }}
                                       className="py-2 px-3 bg-[#FF3B30]/10 hover:bg-[#FF3B30]/25 rounded-xl font-bold text-[11px] text-[#FF3B30] text-center flex items-center justify-center gap-1.5"
@@ -1324,53 +1229,6 @@ export default function App() {
               transition={{ duration: 0.08, ease: 'easeOut' }}
               className="space-y-4 animate-fade-in"
             >
-              {/* iCloud Styled Badge inside settings */}
-              <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-4 shadow-xs text-center flex flex-col items-center">
-                {user ? (
-                  <div className="flex flex-col items-center">
-                    {user.photoURL ? (
-                      <img 
-                        src={user.photoURL} 
-                        alt={user.displayName || 'Google user'} 
-                        className="w-14 h-14 rounded-full border border-neutral-200 dark:border-neutral-700 shadow-sm object-cover"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="w-14 h-14 bg-gradient-to-br from-[#007AFF] to-[#147efb] text-white flex items-center justify-center text-xl font-bold rounded-full shadow-inner shadow-black/10">
-                        {user.displayName?.[0] || 'G'}
-                      </div>
-                    )}
-                    <h2 className="text-sm font-extrabold text-neutral-800 dark:text-neutral-100 mt-2.5 leading-tight">{user.displayName || 'Nhân viên Google User'}</h2>
-                    <p className="text-[10px] text-neutral-400 font-medium">{user.email}</p>
-                    
-                    <button 
-                      onClick={handleGoogleLogout}
-                      className="mt-3.5 flex items-center gap-1.5 text-xs text-[#FF3B30] font-bold bg-[#FF3B30]/10 px-3.5 py-1.5 rounded-full transition-colors active:scale-95"
-                    >
-                      <LogOut size={13} />
-                      Đăng xuất Tài khoản Google
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center py-2">
-                    <div className="w-12 h-12 bg-neutral-100 dark:bg-neutral-800 rounded-full flex items-center justify-center text-neutral-400 mb-2">
-                      <Cpu size={22} />
-                    </div>
-                    <h2 className="text-sm font-bold text-neutral-800 dark:text-neutral-200 leading-tight">Yêu cầu kết nối Cloud Firestore</h2>
-                    <p className="text-[10.5px] text-neutral-400 max-w-xs mt-1 leading-normal px-2">
-                      Do bạn chưa đăng nhập, vui lòng thực hiện ký tên & cấp quyền để tiếp tục đồng bộ báo cáo khai thác.
-                    </p>
-                    <button 
-                      onClick={handleGoogleLogin}
-                      className="mt-3.5 flex items-center gap-1.5 text-xs font-bold text-white bg-blue-600 px-5 py-2 rounded-2xl active:scale-95 transition-all shadow-sm"
-                    >
-                      <LogIn size={13} />
-                      Kết nối tài khoản Google
-                    </button>
-                  </div>
-                )}
-              </div>
-
               {/* Target Cloud Firestore Connection details screen */}
               <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-4 shadow-xs space-y-3">
                 <div className="flex items-center gap-1.5 pb-1.5 border-b border-neutral-100 dark:border-neutral-800">
@@ -1380,21 +1238,15 @@ export default function App() {
                 
                 <div className="space-y-1">
                   <p className="text-[10px] font-bold text-neutral-400 uppercase">Trạng thái kết nối</p>
-                  {user ? (
-                    <p className="text-xs text-[#34C759] font-bold break-all flex items-center gap-1">
-                      <span>Đang hoạt động (gen-lang-client-0491638315)</span>
-                    </p>
-                  ) : (
-                    <p className="text-xs text-neutral-500 font-semibold italic">
-                      Vui lòng kết nối tài khoản Google để kích hoạt cơ sở dữ liệu nhóm.
-                    </p>
-                  )}
+                  <p className="text-xs text-[#34C759] font-bold break-all flex items-center gap-1">
+                    <span>Đang hoạt động (gen-lang-client-0491638315)</span>
+                  </p>
                 </div>
 
                 <div className="text-[10px] text-neutral-400/90 leading-relaxed bg-neutral-1050 dark:bg-neutral-950 p-2.5 rounded-xl border border-neutral-200/30 dark:border-neutral-800 flex gap-2">
                   <Info size={14} className="text-[#007AFF] shrink-0" />
                   <div>
-                    Mỗi lần bấm đồng bộ, báo cáo sẽ được lưu trực tiếp vào collection <b>reports</b> trên Cloud Firestore với ID dạng <code>{"{staffName}_{date}"}</code>. Điều này giúp đồng bộ tức thời số liệu của cả nhóm cửa hàng mà không bị giới hạn phiên đăng nhập 1 tiếng.
+                    Mỗi lần bấm đồng bộ, báo cáo sẽ được lưu trực tiếp vào collection <b>reports</b> trên Cloud Firestore với ID dạng <code>{"{staffName}_{date}"}</code>. Điều này giúp đồng bộ tức thời số liệu của cả nhóm cửa hàng mà không cần đăng nhập Google.
                   </div>
                 </div>
               </div>
@@ -1500,19 +1352,17 @@ export default function App() {
                     </div>
 
                     {/* Refresh action */}
-                    {user && (
-                      <button
-                        onClick={() => {
-                          loadDashboardData();
-                          toast.success('Đã làm mới dữ liệu mới nhất!');
-                        }}
-                        disabled={isLoadingDashboard}
-                        className="p-1.5 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-600 dark:text-neutral-300 rounded-lg transition-colors border border-neutral-200/10 cursor-pointer"
-                        title="Làm mới dữ liệu"
-                      >
-                        <RefreshCw size={12} className={isLoadingDashboard ? 'animate-spin' : ''} />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => {
+                        loadDashboardData();
+                        toast.success('Đã làm mới dữ liệu mới nhất!');
+                      }}
+                      disabled={isLoadingDashboard}
+                      className="p-1.5 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-750 text-neutral-600 dark:text-neutral-300 rounded-lg transition-colors border border-neutral-200/10 cursor-pointer"
+                      title="Làm mới dữ liệu"
+                    >
+                      <RefreshCw size={12} className={isLoadingDashboard ? 'animate-spin' : ''} />
+                    </button>
 
                     {/* Export Action */}
                     <button
@@ -1526,29 +1376,11 @@ export default function App() {
                 </div>
 
                 {/* Connection status badge */}
-                {user ? (
-                  <div className="flex items-center gap-1.5 p-2 bg-[#34C759]/10 text-[#34C759] border border-[#34C759]/20 rounded-xl">
-                    <span className="w-1.5 h-1.5 bg-[#34C759] rounded-full animate-pulse" />
-                    <span className="text-[9.5px] font-extrabold uppercase">Dữ liệu từ Cloud Firestore</span>
-                    <span className="text-[9.5px] text-[#34C759]/80 ml-auto">(Đồng bộ cả nhóm)</span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-2 p-3 bg-amber-500/10 text-amber-600 dark:text-amber-500 border border-amber-500/20 rounded-xl">
-                    <div className="flex items-center gap-1.5 ">
-                      <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
-                      <span className="text-[9.5px] font-extrabold uppercase">Dữ liệu cá nhân (Local)</span>
-                    </div>
-                    <p className="text-[9.5px] leading-relaxed opacity-95">
-                      Bạn chưa đăng nhập. Đăng nhập tại màn hình <b>Đồng bộ</b> để xem số liệu tích luỹ chung của cả nhóm cửa hàng từ Cloud Firestore.
-                    </p>
-                    <button
-                      onClick={() => setActiveTab('sync')}
-                      className="text-left font-bold text-[9px] hover:underline flex items-center gap-1 shrink-0 mt-0.5 text-blue-500"
-                    >
-                      <span>Sang tab Đồng bộ để kết nối tài khoản Google ⚡</span>
-                    </button>
-                  </div>
-                )}
+                <div className="flex items-center gap-1.5 p-2 bg-[#34C759]/10 text-[#34C759] border border-[#34C759]/20 rounded-xl">
+                  <span className="w-1.5 h-1.5 bg-[#34C759] rounded-full animate-pulse" />
+                  <span className="text-[9.5px] font-extrabold uppercase">Dữ liệu từ Cloud Firestore</span>
+                  <span className="text-[9.5px] text-[#34C759]/80 ml-auto">(Đồng bộ cả nhóm)</span>
+                </div>
               </div>
 
               {/* Data Loading state or empty indicators */}

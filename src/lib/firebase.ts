@@ -1,5 +1,12 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
+import { 
+  getFirestore, 
+  collection, 
+  doc, 
+  setDoc, 
+  getDocs, 
+  deleteDoc 
+} from 'firebase/firestore';
 
 // Firebase Config copied from /firebase-applet-config.json for type-safe and reliable ESM importing
 const firebaseConfig = {
@@ -12,71 +19,8 @@ const firebaseConfig = {
   measurementId: ""
 };
 
-import { 
-  getFirestore, 
-  collection, 
-  doc, 
-  setDoc, 
-  getDocs, 
-  deleteDoc 
-} from 'firebase/firestore';
-
 const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
 export const db = getFirestore(app);
-
-const provider = new GoogleAuthProvider();
-
-// Set custom parameters to force consent screen and account selection if necessary
-provider.setCustomParameters({
-  prompt: 'select_account consent'
-});
-
-let isSigningIn = false;
-let cachedAccessToken: string | null = null;
-
-// Initialize auth state listener. Call this on app load.
-export const initAuth = (
-  onAuthSuccess?: (user: User, token: string) => void,
-  onAuthFailure?: () => void
-) => {
-  return onAuthStateChanged(auth, async (user: User | null) => {
-    if (user) {
-      const token = cachedAccessToken || 'firestore_authenticated';
-      if (onAuthSuccess) onAuthSuccess(user, token);
-    } else {
-      cachedAccessToken = null;
-      if (onAuthFailure) onAuthFailure();
-    }
-  });
-};
-
-// Must be called from a button click or user interaction
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
-  try {
-    isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    // Since Google access token is only valid for 1 hour, we can still cache it if returned,
-    // but the app is moving to Firestore which does not require it for authentication.
-    cachedAccessToken = credential?.accessToken || 'firestore_authenticated';
-    return { user: result.user, accessToken: cachedAccessToken };
-  } catch (error: any) {
-    console.error('Sign in error:', error);
-    throw error;
-  } finally {
-    isSigningIn = false;
-  }
-};
-
-export const getAccessToken = async (): Promise<string | null> => {
-  return cachedAccessToken;
-};
-
-export const logout = async () => {
-  await auth.signOut();
-  cachedAccessToken = null;
-};
 
 export async function saveReportToFirestore(report: any): Promise<void> {
   const docId = `${report.staffName}_${report.date}`;
