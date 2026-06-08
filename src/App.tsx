@@ -12,7 +12,6 @@ import toast, { Toaster } from 'react-hot-toast';
 
 import { PriceWarStats, LeadInfo, ReportState, SyncLog } from './types';
 import { DBService } from './lib/db';
-import { saveReportToFirestore, deleteReportFromFirestore, fetchTeamReportsFromFirestore } from './lib/firebase';
 import html2canvas from 'html2canvas-pro';
 
 // Capture and share helper using Web Share API
@@ -189,8 +188,34 @@ export default function App() {
   const loadDashboardData = useCallback(async () => {
     setIsLoadingDashboard(true);
     try {
-      const reports = await fetchTeamReportsFromFirestore();
-      setSheetRows(reports);
+      const localReports = await DBService.getAllReports();
+      const mapped = localReports.map((item: any) => ({
+        date: item.date || '',
+        staffName: item.staffName || 'Bạn (Local)',
+        cash: parseFloat(item.cash) || 0,
+        installment: parseFloat(item.installment) || 0,
+        tivi: item.products?.tivi || 0,
+        tuLanh: item.products?.tuLanh || 0,
+        mayGiat: item.products?.mayGiat || 0,
+        mayLanh: item.products?.mayLanh || 0,
+        smpTab: item.products?.smpTab || 0,
+        laptop: item.products?.laptop || 0,
+        mln: item.household?.mln || 0,
+        qdh: item.household?.qdh || 0,
+        quat: item.household?.quat || 0,
+        noiCom: item.household?.noiCom || 0,
+        locKk: item.household?.locKk || 0,
+        insurance: parseFloat(item.services?.insurance) || 0,
+        maintenance: parseFloat(item.services?.maintenance) || 0,
+        vieon: item.services?.vieon || 0,
+        sim: item.services?.sim || 0,
+        camera: item.accessories?.camera || 0,
+        sdp: item.accessories?.sdp || 0,
+        taiNghe: item.accessories?.taiNghe || 0,
+        den: item.accessories?.den || 0,
+        dongHo: item.accessories?.dongHo || 0,
+      }));
+      setSheetRows(mapped);
     } catch (err) {
       console.error('Error loading dashboard data:', err);
     } finally {
@@ -360,63 +385,7 @@ export default function App() {
     }
   };
 
-  // Synchronizing data directly to Firestore
-  const handleGoogleSync = async () => {
-    if (!state.staffName.trim()) {
-      toast.error('Vui lòng điền Tên Nhân Viên trước khi đồng bộ!');
-      setIsEditingName(true);
-      return;
-    }
-    if (!isValidStaffName(state.staffName)) {
-      toast.error('Vui lòng nhập đúng định dạng "Số - Tên" (Ví dụ: 21707 - Sơn)!');
-      setIsEditingName(true);
-      return;
-    }
 
-    setIsSyncing(true);
-    const toastId = toast.loading('Đang đồng bộ dữ liệu lên Cloud Firestore...');
-
-    try {
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const finalReport = {
-        date: todayStr,
-        staffName: state.staffName,
-        cash: state.cash,
-        installment: state.installment,
-        products: { ...state.products },
-        household: { ...state.household },
-        services: { ...state.services },
-        accessories: { ...state.accessories },
-        priceWar: { ...state.priceWar },
-        leads: [...state.leads],
-        synced: true,
-        syncedAt: new Date().toISOString()
-      };
-
-      await saveReportToFirestore(finalReport);
-
-      toast.success('Đồng bộ Cloud Firestore thành công!', { id: toastId });
-      await DBService.addSyncLog('success', `Báo cáo tự động lưu Cloud Firestore`);
-      
-      await DBService.saveReport(finalReport);
-      
-      // Reload local reports state arrays
-      const rawReports = await DBService.getAllReports();
-      setHistory(rawReports);
-
-      // Reload dashboard if active
-      if (activeTab === 'dashboard') {
-        loadDashboardData();
-      }
-    } catch (err: any) {
-      toast.error(`Đồng bộ thất bại: ${err.message}`, { id: toastId });
-      await DBService.addSyncLog('error', `Lỗi kết nối Cloud Firestore: ${err.message}`);
-    } finally {
-      setIsSyncing(false);
-      const rawLogs = await DBService.getSyncLogs();
-      setSyncLogs(rawLogs);
-    }
-  };
 
   const getFmt = (val: any) => (val === 0 || val === "" || val === '0') ? " " : val;
 
@@ -517,8 +486,6 @@ export default function App() {
       return;
     }
 
-
-
     // Capture current values to avoid referencing the reset state during asynchronous execution
     const todayStr = new Date().toISOString().slice(0, 10);
     const capturedStaffName = state.staffName;
@@ -547,6 +514,9 @@ export default function App() {
       await DBService.saveReport(finalReport);
       const rawReports = await DBService.getAllReports();
       setHistory(rawReports);
+      await DBService.addSyncLog('success', `Đã ghi nhận báo cáo vào bộ nhớ máy (IndexedDB)`);
+      const rawLogs = await DBService.getSyncLogs();
+      setSyncLogs(rawLogs);
     } catch (err) {
       console.error('Error saving local report:', err);
     }
@@ -559,34 +529,6 @@ export default function App() {
     }));
     setWarnings([]);
     toast.success('Đã lưu nháp local & làm sạch biểu mẫu để nhập tiếp đơn tiếp theo!', { icon: '🔄' });
-
-    // 3. Sync to Firestore
-    setIsSyncing(true);
-    const toastId = toast.loading('Đang ghi dữ liệu báo cáo vào Cloud Firestore...');
-
-    try {
-      await saveReportToFirestore(finalReport);
-
-      toast.success('Đồng bộ Cloud Firestore thành công!', { id: toastId });
-      await DBService.addSyncLog('success', `Báo cáo tự động lưu Cloud Firestore`);
-      
-      finalReport.synced = true;
-      await DBService.saveReport(finalReport);
-      const rawReports = await DBService.getAllReports();
-      setHistory(rawReports);
-
-      // Reload dashboard if active
-      if (activeTab === 'dashboard') {
-        loadDashboardData();
-      }
-    } catch (err: any) {
-      toast.error(`Đồng bộ Cloud Firestore thất bại: ${err.message}`, { id: toastId });
-      await DBService.addSyncLog('error', `Lỗi đồng bộ tự động: ${err.message}`);
-    } finally {
-      setIsSyncing(false);
-      const rawLogs = await DBService.getSyncLogs();
-      setSyncLogs(rawLogs);
-    }
   };
 
   // Leads query searching filter
@@ -1169,25 +1111,10 @@ export default function App() {
                                     <button 
                                       onClick={async () => {
                                         if (confirm(`Bạn muốn xóa ngày lịch sử báo cáo ${item.date}?`)) {
-                                          if (item.synced) {
-                                            const toastId = toast.loading('Đang xóa dữ liệu trên Cloud Firestore...');
-                                            try {
-                                              const success = await deleteReportFromFirestore(item.date, item.staffName);
-                                              if (success) {
-                                                toast.success('Đã xóa dữ liệu trên Cloud Firestore!', { id: toastId });
-                                              } else {
-                                                toast.error('Không thể xóa dữ liệu trên Cloud Firestore.', { id: toastId });
-                                              }
-                                            } catch (error: any) {
-                                              toast.error(`Lỗi xóa trên Cloud Firestore: ${error.message}`, { id: toastId });
-                                            }
-                                          }
-
                                           await DBService.deleteReport(item.date);
                                           const raw = await DBService.getAllReports();
                                           setHistory(raw);
                                           toast.success('Đã xóa dữ liệu lịch sử ngày thành công!');
-
                                           loadDashboardData();
                                         }
                                       }}
@@ -1218,38 +1145,38 @@ export default function App() {
               transition={{ duration: 0.08, ease: 'easeOut' }}
               className="space-y-4 animate-fade-in"
             >
-              {/* Target Cloud Firestore Connection details screen */}
+              {/* Target IndexedDB details screen */}
               <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-4 shadow-xs space-y-3">
                 <div className="flex items-center gap-1.5 pb-1.5 border-b border-neutral-100 dark:border-neutral-800">
                   <Cpu size={15} className="text-[#007AFF]" />
-                  <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Cơ sở dữ liệu Cloud Firestore</span>
+                  <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Cơ sở dữ liệu cục bộ (IndexedDB)</span>
                 </div>
                 
                 <div className="space-y-1">
-                  <p className="text-[10px] font-bold text-neutral-400 uppercase">Trạng thái kết nối</p>
+                  <p className="text-[10px] font-bold text-neutral-400 uppercase">Trạng thái cơ sở dữ liệu</p>
                   <p className="text-xs text-[#34C759] font-bold break-all flex items-center gap-1">
-                    <span>Đang hoạt động (gen-lang-client-0491638315)</span>
+                    <span>Đang hoạt động (Offline-first)</span>
                   </p>
                 </div>
 
                 <div className="text-[10px] text-neutral-400/90 leading-relaxed bg-neutral-1050 dark:bg-neutral-950 p-2.5 rounded-xl border border-neutral-200/30 dark:border-neutral-800 flex gap-2">
                   <Info size={14} className="text-[#007AFF] shrink-0" />
                   <div>
-                    Mỗi lần bấm đồng bộ, báo cáo sẽ được lưu trực tiếp vào collection <b>reports</b> trên Cloud Firestore với ID dạng <code>{"{staffName}_{date}"}</code>. Điều này giúp đồng bộ tức thời số liệu của cả nhóm cửa hàng mà không cần đăng nhập Google.
+                    Mọi báo cáo, danh sách khách hàng và lịch sử hoạt động đều được lưu an toàn trực tiếp trên trình duyệt của bạn (IndexedDB). Ứng dụng chạy hoàn toàn offline và không gửi dữ liệu ra ngoài.
                   </div>
                 </div>
               </div>
 
-              {/* Synchronizar Logs list */}
+              {/* Activity Logs list */}
               <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-4 shadow-xs space-y-3">
                 <div className="flex items-center justify-between pb-1.5 border-b border-neutral-100 dark:border-neutral-800">
                   <div className="flex items-center gap-1.5">
                     <History size={15} className="text-neutral-400" />
-                    <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Nhật ký đồng bộ của phiên</span>
+                    <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Nhật ký hoạt động của phiên</span>
                   </div>
                   <button 
                     onClick={async () => {
-                      if (confirm('Khôi phục sạch tất cả lịch sử đồng bộ này?')) {
+                      if (confirm('Khôi phục sạch tất cả nhật ký hoạt động này?')) {
                         await DBService.clearAllData();
                         setSyncLogs([]);
                         toast.success('Đã dọn dẹp log!');
@@ -1262,7 +1189,7 @@ export default function App() {
                 </div>
 
                 {syncLogs.length === 0 ? (
-                  <p className="text-center py-6 text-xs text-neutral-400 italic">Chưa phát sinh nhật ký đồng bộ.</p>
+                  <p className="text-center py-6 text-xs text-neutral-400 italic">Chưa phát sinh nhật ký hoạt động.</p>
                 ) : (
                   <div className="space-y-2 max-h-48 overflow-y-auto">
                     {syncLogs.map((log) => {
@@ -1706,7 +1633,7 @@ export default function App() {
         <IOSInterfaceTabButton label="Khách" active={activeTab === 'leads'} icon={<UserPlus size={20} />} onClick={() => setActiveTab('leads')} />
         <IOSInterfaceTabButton label="Biểu đồ" active={activeTab === 'dashboard'} icon={<BarChart3 size={20} />} onClick={() => setActiveTab('dashboard')} />
         <IOSInterfaceTabButton label="Nhật Ký" active={activeTab === 'history'} icon={<History size={20} />} onClick={() => setActiveTab('history')} />
-        <IOSInterfaceTabButton label="Đồng bộ" active={activeTab === 'sync'} icon={<Settings size={20} />} onClick={() => setActiveTab('sync')} />
+        <IOSInterfaceTabButton label="Cài đặt" active={activeTab === 'sync'} icon={<Settings size={20} />} onClick={() => setActiveTab('sync')} />
       </footer>
 
       {/* Database Clear confirmation Modal dialog */}
