@@ -1,18 +1,13 @@
-/**
- * Google Sheets Service for synchronizing reports
- * Each user gets their own spreadsheet, stored in localStorage by email.
- */
-
-const STORAGE_KEY_PREFIX = 'user_spreadsheet_';
+import { DBService } from './db';
 
 /** Get saved spreadsheet ID for a user email */
-export function getUserSpreadsheetId(email: string): string | null {
-  return localStorage.getItem(`${STORAGE_KEY_PREFIX}${email}`);
+export async function getUserSpreadsheetId(email: string): Promise<string | null> {
+  return DBService.getSpreadsheetId(email);
 }
 
 /** Save spreadsheet ID for a user email */
-export function setUserSpreadsheetId(email: string, spreadsheetId: string): void {
-  localStorage.setItem(`${STORAGE_KEY_PREFIX}${email}`, spreadsheetId);
+export async function setUserSpreadsheetId(email: string, spreadsheetId: string): Promise<void> {
+  return DBService.setSpreadsheetId(email, spreadsheetId);
 }
 
 /** Create a brand new Google Sheet for a user */

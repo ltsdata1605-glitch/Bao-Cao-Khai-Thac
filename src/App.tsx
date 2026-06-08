@@ -267,10 +267,10 @@ export default function App() {
         setUser(firebaseUser);
         setAccessToken(token);
         setNeedsAuth(false);
-        // Load user's personal spreadsheet ID
         if (firebaseUser?.email) {
-          const savedId = getUserSpreadsheetId(firebaseUser.email);
-          if (savedId) setUserSpreadsheetIdState(savedId);
+          getUserSpreadsheetId(firebaseUser.email).then(savedId => {
+            if (savedId) setUserSpreadsheetIdState(savedId);
+          });
         }
       },
       () => {
@@ -420,9 +420,8 @@ export default function App() {
   };
 
   // Appending the today report directly to spreadsheet
-  /** Get existing or create new spreadsheet for current user */
   const getOrCreateSpreadsheet = async (token: string, email: string, staffName: string): Promise<string> => {
-    let sheetId = getUserSpreadsheetId(email);
+    let sheetId = await getUserSpreadsheetId(email);
     if (sheetId) {
       setUserSpreadsheetIdState(sheetId);
       return sheetId;
@@ -430,7 +429,7 @@ export default function App() {
     // First time - create a new spreadsheet
     toast('Đang tạo bảng tính mới cho bạn...', { icon: '📝' });
     sheetId = await createSpreadsheetForUser(token, staffName);
-    setUserSpreadsheetId(email, sheetId);
+    await setUserSpreadsheetId(email, sheetId);
     setUserSpreadsheetIdState(sheetId);
     return sheetId;
   };

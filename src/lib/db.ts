@@ -168,5 +168,23 @@ export const DBService = {
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
     });
+  },
+
+  async getSpreadsheetId(email: string): Promise<string | null> {
+    const { store } = await getStore('saved_totals');
+    return new Promise((resolve) => {
+      const request = store.get(`spreadsheet_id_${email}`);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => resolve(null);
+    });
+  },
+
+  async setSpreadsheetId(email: string, spreadsheetId: string): Promise<void> {
+    const { store } = await getStore('saved_totals', 'readwrite');
+    return new Promise((resolve, reject) => {
+      const request = store.put(spreadsheetId, `spreadsheet_id_${email}`);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
   }
 };
