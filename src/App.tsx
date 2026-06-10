@@ -1296,6 +1296,7 @@ export default function App() {
               {/* Form to insert lead information */}
               <LeadsManager 
                 leads={state.leads} 
+                staffName={state.staffName}
                 onAddLead={(lead) => {
                   const newLead = { 
                     ...lead, 
@@ -2231,12 +2232,13 @@ function IOSStepplet({ value, onMinus, onPlus }: { value: number; onMinus: () =>
 
 // Leads customer logic sub components
 function LeadsManager({ 
-  leads, onAddLead, onRemoveLead, onUpdateLead
+  leads, onAddLead, onRemoveLead, onUpdateLead, staffName
 }: { 
   leads: LeadInfo[]; 
   onAddLead: (lead: Omit<LeadInfo, 'id' | 'status' | 'createdAt' | 'updatedAt'>) => void; 
   onRemoveLead: (id: string) => void;
   onUpdateLead: (lead: LeadInfo) => void;
+  staffName: string;
 }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -2403,9 +2405,9 @@ function LeadsManager({
           <div className="flex items-center gap-2.5">
             <div className="flex flex-col gap-0.5">
               <h4 className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Danh sách Khách Hàng ({leads.length})</h4>
-              {state.staffName && (
+              {staffName && (
                 <span className="text-[9.5px] font-bold text-[#007AFF] dark:text-[#147efb]">
-                  👤 NV: {state.staffName}
+                  👤 NV: {staffName}
                 </span>
               )}
             </div>
