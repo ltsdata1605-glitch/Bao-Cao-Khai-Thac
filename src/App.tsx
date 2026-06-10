@@ -256,6 +256,7 @@ export default function App() {
         cash: parseFloat(item.cash) || 0,
         installment: parseFloat(item.installment) || 0,
         moVi: item.moVi || false,
+        showPriceWar: item.showPriceWar || false,
         tivi: item.products?.tivi || 0,
         tuLanh: item.products?.tuLanh || 0,
         mayGiat: item.products?.mayGiat || 0,
@@ -427,15 +428,15 @@ export default function App() {
   };
 
   // Calculations for current form values (no cumulative)
-  const totalCash = parseFloat(state.cash) || 0;
+  const totalRevenue = parseFloat(state.cash) || 0;
   const totalInstallment = parseFloat(state.installment) || 0;
   const totalInsurance = parseFloat(state.services.insurance) || 0;
 
   const efficiency = useCallback(() => {
-    const total = totalCash + totalInstallment;
+    const total = totalRevenue;
     if (total === 0) return 0;
     return (totalInstallment / total) * 100;
-  }, [totalCash, totalInstallment]);
+  }, [totalRevenue, totalInstallment]);
 
   const handleStep = (category: 'products' | 'household' | 'accessories' | 'services', key: string, step: number) => {
     handleStateChange((prev) => ({
@@ -469,17 +470,18 @@ export default function App() {
 
   const getVietTextReport = (data: typeof state) => {
     const now = new Date();
-    const cash = parseFloat(data.cash) || 0;
+    const total = parseFloat(data.cash) || 0;
     const inst = parseFloat(data.installment) || 0;
-    const total = cash + inst;
+    const cash = Math.max(0, total - inst);
     const eff = total > 0 ? Math.round((inst / total) * 100) : 0;
 
     let r = `📊 BÁO CÁO KHAI THÁC\n\n`;
 
     // Doanh thu multi-line list
-    if (cash > 0 || inst > 0) {
+    if (total > 0) {
+      const formattedCash = parseFloat(cash.toFixed(2));
       r += `💰 Doanh thu: ${total}tr\n`;
-      r += `   - T.Mặt: ${cash}tr\n`;
+      r += `   - T.Mặt: ${formattedCash}tr\n`;
       r += `   - T.Chậm: ${inst}Tr ~ ${eff}% | Mở Ví: ${data.moVi ? '✓' : '✗'}\n`;
     }
 
@@ -588,11 +590,18 @@ export default function App() {
     const todayStr = new Date().toISOString().slice(0, 10);
     const capturedStaffName = state.staffName;
 
+    const totalInput = parseFloat(state.cash) || 0;
+    const instInput = parseFloat(state.installment) || 0;
+    const calculatedCash = Math.max(0, totalInput - instInput);
+    const cashStr = calculatedCash > 0 ? parseFloat(calculatedCash.toFixed(2)).toString() : '';
+
     const finalReport = {
       date: todayStr,
       staffName: capturedStaffName,
-      cash: state.cash,
+      cash: cashStr, // Stored as the cash portion for database compatibility
       installment: state.installment,
+      moVi: state.moVi,
+      showPriceWar: state.showPriceWar,
       products: { ...state.products },
       household: { ...state.household },
       services: { ...state.services },
@@ -647,6 +656,7 @@ export default function App() {
           cash: parseFloat(item.cash) || 0,
           installment: parseFloat(item.installment) || 0,
           moVi: item.moVi || false,
+          showPriceWar: item.showPriceWar || false,
           tivi: item.products?.tivi || 0,
           tuLanh: item.products?.tuLanh || 0,
           mayGiat: item.products?.mayGiat || 0,
@@ -796,7 +806,7 @@ export default function App() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-neutral-400 uppercase">Tiền mặt</label>
+                    <label className="text-[10px] font-bold text-neutral-400 uppercase">Tổng doanh thu đơn hàng</label>
                     <input 
                       type="number" 
                       inputMode="decimal"
@@ -809,7 +819,7 @@ export default function App() {
                     />
                   </div>
                   <div className="space-y-1 border-l border-neutral-100 dark:border-neutral-800 pl-4">
-                    <label className="text-[10px] font-bold text-[#007AFF] uppercase">Trả chậm</label>
+                    <label className="text-[10px] font-bold text-[#007AFF] uppercase">Trả chậm (Kèm Ví)</label>
                     <input 
                       type="number" 
                       inputMode="decimal"
@@ -1608,83 +1618,6 @@ export default function App() {
                   </div>
                 )}
               </div>
-            </motion.div>
-          )}
-
-          {/* --- Tab 4: SYNC & GOOGLE INTEGRATION SETTINGS --- */}
-          {activeTab === 'sync' && (
-            <motion.div
-              key="sync"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.08, ease: 'easeOut' }}
-              className="space-y-4 animate-fade-in"
-            >
-              {/* Target IndexedDB details screen */}
-              <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-4 shadow-xs space-y-3">
-                <div className="flex items-center gap-1.5 pb-1.5 border-b border-neutral-100 dark:border-neutral-800">
-                  <Cpu size={15} className="text-[#007AFF]" />
-                  <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Cơ sở dữ liệu cục bộ (IndexedDB)</span>
-                </div>
-                
-                <div className="space-y-1">
-                  <p className="text-[10px] font-bold text-neutral-400 uppercase">Trạng thái cơ sở dữ liệu</p>
-                  <p className="text-xs text-[#34C759] font-bold break-all flex items-center gap-1">
-                    <span>Đang hoạt động (Offline-first)</span>
-                  </p>
-                </div>
-
-                <div className="text-[10px] text-neutral-400/90 leading-relaxed bg-neutral-1050 dark:bg-neutral-950 p-2.5 rounded-xl border border-neutral-200/30 dark:border-neutral-800 flex gap-2">
-                  <Info size={14} className="text-[#007AFF] shrink-0" />
-                  <div>
-                    Mọi báo cáo, danh sách khách hàng và lịch sử hoạt động đều được lưu an toàn trực tiếp trên trình duyệt của bạn (IndexedDB). Ứng dụng chạy hoàn toàn offline và không gửi dữ liệu ra ngoài.
-                  </div>
-                </div>
-              </div>
-
-              {/* Activity Logs list */}
-              <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-4 shadow-xs space-y-3">
-                <div className="flex items-center justify-between pb-1.5 border-b border-neutral-100 dark:border-neutral-800">
-                  <div className="flex items-center gap-1.5">
-                    <History size={15} className="text-neutral-400" />
-                    <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Nhật ký hoạt động của phiên</span>
-                  </div>
-                  <button 
-                    onClick={async () => {
-                      if (confirm('Khôi phục sạch tất cả nhật ký hoạt động này?')) {
-                        await DBService.clearAllData();
-                        setSyncLogs([]);
-                        toast.success('Đã dọn dẹp log!');
-                      }
-                    }}
-                    className="text-[10px] font-bold text-[#FF3B30]"
-                  >
-                    Xóa Log
-                  </button>
-                </div>
-
-                {syncLogs.length === 0 ? (
-                  <p className="text-center py-6 text-xs text-neutral-400 italic">Chưa phát sinh nhật ký hoạt động.</p>
-                ) : (
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {syncLogs.map((log) => {
-                      const logDateStr = new Date(log.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                      return (
-                        <div key={log.id} className="text-xs bg-neutral-50 dark:bg-neutral-850 p-2 rounded-xl flex justify-between items-start border border-neutral-200/20">
-                          <div className="space-y-0.5 max-w-[260px]">
-                            <span className={`px-1.5 py-0.5 rounded text-[8.5px] font-extrabold mr-1.5 ${log.status === 'success' ? 'bg-[#34C759]/15 text-[#34C759]' : 'bg-[#FF3B30]/15 text-[#FF3B30]'}`}>
-                              {log.status === 'success' ? 'SUCCESS' : 'ERROR'}
-                            </span>
-                            <span className="text-neutral-400 font-medium text-[9.5px]">{logDateStr}</span>
-                            <p className="text-[10px] font-medium text-neutral-600 dark:text-neutral-300 break-words leading-tight mt-1">{log.message}</p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
 
               {/* IndexedDB reset block warnings */}
               <div className="bg-[#FF3B30]/5 border border-[#FF3B30]/20 rounded-2xl p-4 shadow-xs flex justify-between items-center">
@@ -1699,9 +1632,9 @@ export default function App() {
                   XÓA HẾT 💾
                 </button>
               </div>
-
             </motion.div>
           )}
+
 
           {/* --- Tab 5: TEAM DASHBOARD (BIỂU ĐỒ NHÓM) --- */}
           {activeTab === 'dashboard' && (
@@ -1767,12 +1700,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Connection status badge */}
-                <div className="flex items-center gap-1.5 p-2 bg-[#007AFF]/10 text-[#007AFF] border border-[#007AFF]/20 rounded-xl">
-                  <span className="w-1.5 h-1.5 bg-[#007AFF] rounded-full animate-pulse" />
-                  <span className="text-[9.5px] font-extrabold uppercase">Báo cáo cá nhân (IndexedDB)</span>
-                  <span className="text-[9.5px] text-[#007AFF]/80 ml-auto">(Lưu trữ cục bộ)</span>
-                </div>
               </div>
 
               {/* Data Loading state or empty indicators */}
@@ -1829,6 +1756,7 @@ export default function App() {
                 const totalInsuranceSum = filtered.reduce((s, r) => s + r.insurance, 0);
                 const totalViSum = filtered.reduce((s, r) => s + (r.vi || 0), 0);
                 const totalMoViCount = filtered.reduce((s, r) => s + (r.moVi ? 1 : 0), 0);
+                const totalPriceWarCount = filtered.reduce((s, r) => s + (r.showPriceWar ? 1 : 0), 0);
                 const totalMaintenanceSum = filtered.reduce((s, r) => s + r.maintenance, 0);
                 const totalVieonSum = filtered.reduce((s, r) => s + r.vieon, 0);
                 const totalSimSum = filtered.reduce((s, r) => s + r.sim, 0);
@@ -1891,37 +1819,74 @@ export default function App() {
 
                 return (
                   <div id="dashboard-capture-area" className="space-y-4 p-3 bg-[#F2F2F7] dark:bg-neutral-950 rounded-2xl">
-                    <div className="flex items-center justify-between pb-1.5 border-b border-neutral-200 dark:border-neutral-800 select-none">
-                      <span className="text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Báo cáo doanh số cá nhân ({dashboardTimeRange === 'today' ? 'Hôm nay' : 'Tuần này'})</span>
+                    <div className="flex items-start justify-between pb-1.5 border-b border-neutral-200 dark:border-neutral-800 select-none">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Báo cáo doanh số cá nhân ({dashboardTimeRange === 'today' ? 'Hôm nay' : 'Tuần này'})</span>
+                        {state.staffName && (
+                          <span className="text-[9.5px] font-bold text-[#007AFF] dark:text-[#147efb] mt-0.5">
+                            👤 NV: {state.staffName}
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[9px] font-bold text-neutral-400 dark:text-neutral-500">{new Date().toLocaleDateString('vi-VN')}</span>
                     </div>
                     
                     {/* KPI grid counts */}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-4 gap-2">
                       
-                      {/* Metric Card 1 */}
-                      <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-3.5 shadow-xs space-y-1">
-                        <span className="text-[8.5px] font-extrabold text-neutral-400 uppercase tracking-widest block">Tổng Doanh Số</span>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-xl font-black text-neutral-900 dark:text-neutral-50">{totalRevenueByRange.toFixed(1)}</span>
-                          <span className="text-xs font-bold text-neutral-400">Tr</span>
+                      {/* Metric Card 1: Doanh số */}
+                      <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-2.5 shadow-xs space-y-1 flex flex-col justify-between">
+                        <div>
+                          <span className="text-[8px] font-extrabold text-neutral-400 uppercase tracking-wider block truncate">Tổng Doanh Số</span>
+                          <div className="flex items-baseline gap-0.5">
+                            <span className="text-base font-black text-neutral-900 dark:text-neutral-50">{totalRevenueByRange.toFixed(1)}</span>
+                            <span className="text-[10px] font-bold text-neutral-400">Tr</span>
+                          </div>
                         </div>
-                        <div className="text-[9px] text-neutral-400 flex flex-wrap gap-1 border-t border-neutral-100 dark:border-neutral-800/60 pt-1.5 mt-1">
-                          <span>TM: <b>{totalCash.toFixed(1)} Tr</b></span>
-                          <span className="text-neutral-300 dark:text-neutral-700">|</span>
-                          <span>TC: <b>{totalInstallment.toFixed(1)} Tr</b></span>
+                        <div className="text-[8px] text-neutral-400 border-t border-neutral-100 dark:border-neutral-800/60 pt-1 mt-1 truncate">
+                          TM:<b>{totalCash.toFixed(1)}</b>|TC:<b>{totalInstallment.toFixed(1)}</b>
                         </div>
                       </div>
 
-                      {/* Metric Card 2 */}
-                      <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-3.5 shadow-xs space-y-1">
-                        <span className="text-[8.5px] font-extrabold text-neutral-400 uppercase tracking-widest block">Hiệu Suất Trả Chậm</span>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-xl font-black text-[#34C759]">{efficiencyRate}</span>
-                          <span className="text-xs font-bold text-[#34C759]/80">%</span>
+                      {/* Metric Card 2: Hiệu suất */}
+                      <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-2.5 shadow-xs space-y-1 flex flex-col justify-between">
+                        <div>
+                          <span className="text-[8px] font-extrabold text-neutral-400 uppercase tracking-wider block truncate">Hiệu Suất</span>
+                          <div className="flex items-baseline gap-0.5">
+                            <span className="text-base font-black text-[#34C759]">{efficiencyRate}</span>
+                            <span className="text-[10px] font-bold text-[#34C759]/80">%</span>
+                          </div>
                         </div>
-                        <div className="text-[9px] text-neutral-400 border-t border-neutral-100 dark:border-neutral-800/60 pt-1.5 mt-1 flex items-center justify-between">
-                          <span>Tổng số: <b>{filtered.length}</b> đơn báo</span>
+                        <div className="text-[8px] text-neutral-400 border-t border-neutral-100 dark:border-neutral-800/60 pt-1 mt-1 truncate">
+                          Tổng:<b>{filtered.length}</b> đơn
+                        </div>
+                      </div>
+
+                      {/* Metric Card 3: Mở ví */}
+                      <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-2.5 shadow-xs space-y-1 flex flex-col justify-between">
+                        <div>
+                          <span className="text-[8px] font-extrabold text-neutral-400 uppercase tracking-wider block truncate">Mở Ví</span>
+                          <div className="flex items-baseline gap-0.5">
+                            <span className="text-base font-black text-[#007AFF]">{totalMoViCount}</span>
+                            <span className="text-[10px] font-bold text-neutral-400">cái</span>
+                          </div>
+                        </div>
+                        <div className="text-[8px] text-neutral-400 border-t border-neutral-100 dark:border-neutral-800/60 pt-1 mt-1 truncate">
+                          Ví:<b>{totalViSum.toFixed(1)}Tr</b>
+                        </div>
+                      </div>
+
+                      {/* Metric Card 4: Chiến */}
+                      <div className="bg-white dark:bg-neutral-900 border border-neutral-200/50 dark:border-neutral-800 rounded-2xl p-2.5 shadow-xs space-y-1 flex flex-col justify-between">
+                        <div>
+                          <span className="text-[8px] font-extrabold text-neutral-400 uppercase tracking-wider block truncate">Chiến</span>
+                          <div className="flex items-baseline gap-0.5">
+                            <span className="text-base font-black text-[#FF3B30]">{totalPriceWarCount}</span>
+                            <span className="text-[10px] font-bold text-neutral-400">cái</span>
+                          </div>
+                        </div>
+                        <div className="text-[8px] text-neutral-400 border-t border-neutral-100 dark:border-neutral-800/60 pt-1 mt-1 truncate">
+                          Chiến giá
                         </div>
                       </div>
 
@@ -2077,7 +2042,6 @@ export default function App() {
         <IOSInterfaceTabButton label="Khách" active={activeTab === 'leads'} icon={<UserPlus size={20} />} onClick={() => setActiveTab('leads')} />
         <IOSInterfaceTabButton label="Biểu đồ" active={activeTab === 'dashboard'} icon={<BarChart3 size={20} />} onClick={() => setActiveTab('dashboard')} />
         <IOSInterfaceTabButton label="Nhật Ký" active={activeTab === 'history'} icon={<History size={20} />} onClick={() => setActiveTab('history')} />
-        <IOSInterfaceTabButton label="Cài đặt" active={activeTab === 'sync'} icon={<Settings size={20} />} onClick={() => setActiveTab('sync')} />
       </footer>
 
       {/* Custom Field creation Modal */}
@@ -2436,8 +2400,15 @@ function LeadsManager({
       {/* Filter leads listings */}
       <div id="leads-capture-area" className="space-y-2.5 p-3 bg-[#F2F2F7] dark:bg-neutral-950 rounded-2xl">
         <div className="flex justify-between items-center select-none">
-          <div className="flex items-center gap-2">
-            <h4 className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Danh sách Khách Hàng ({leads.length})</h4>
+          <div className="flex items-center gap-2.5">
+            <div className="flex flex-col gap-0.5">
+              <h4 className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Danh sách Khách Hàng ({leads.length})</h4>
+              {state.staffName && (
+                <span className="text-[9.5px] font-bold text-[#007AFF] dark:text-[#147efb]">
+                  👤 NV: {state.staffName}
+                </span>
+              )}
+            </div>
             {leads.length > 0 && (
               <button
                 onClick={() => handleExportAndShare('leads-capture-area', `danh-sach-khach-hang-${new Date().toISOString().slice(0, 10)}.png`)}

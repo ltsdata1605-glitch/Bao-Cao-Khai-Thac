@@ -1,0 +1,14 @@
+{
+  "name": "telegram-agent",
+  "version": "1.0.0",
+  "description": "Telegram Bot for remote vibe coding workflow control",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "node-telegram-bot-api": "^0.66.0"
+  },
+  "private": true
+}
